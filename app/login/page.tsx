@@ -1,9 +1,9 @@
 'use client'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { signIn } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 
-export default function LoginPage() {
+function LoginForm() {
   const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const searchParams = useSearchParams()
@@ -24,7 +24,6 @@ export default function LoginPage() {
           <h1 className="text-2xl font-semibold text-gray-900">Quiniela Mundial 2026</h1>
           <p className="text-gray-500 text-sm mt-1">Ingresa con tu correo</p>
         </div>
-
         {verificar ? (
           <div className="bg-green-50 border border-green-200 rounded-xl p-5 text-center">
             <div className="text-3xl mb-2">📧</div>
@@ -49,7 +48,7 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full bg-verde text-white font-medium py-2.5 rounded-lg hover:bg-verde-dark transition-colors disabled:opacity-60 text-sm"
+              className="w-full text-white font-medium py-2.5 rounded-lg transition-colors disabled:opacity-60 text-sm"
               style={{ background: loading ? '#9FE1CB' : '#1D9E75' }}
             >
               {loading ? 'Enviando...' : 'Enviar link de acceso →'}
@@ -61,5 +60,13 @@ export default function LoginPage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Cargando...</div>}>
+      <LoginForm />
+    </Suspense>
   )
 }

@@ -13,7 +13,7 @@ const TABS = ['picks', 'tabla', 'admin'] as const
 type Tab = typeof TABS[number]
 
 export default function QuinielaPage() {
-  const { data: session, status } = useSession()
+  const { data: session, status } = useSession() ?? {}
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('picks')
   const [jornadaActiva, setJornadaActiva] = useState(1)
