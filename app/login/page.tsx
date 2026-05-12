@@ -17,7 +17,7 @@ function LoginForm() {
     setError('')
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+      options: { emailRedirectTo: `https://project-8vezg.vercel.app/auth/callback` },
     })
     if (error) {
       setError('No se pudo enviar el correo. Verifica que estés registrado.')
