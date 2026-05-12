@@ -1,51 +1,49 @@
 import { NextAuthOptions } from 'next-auth'
-import EmailProvider from 'next-auth/providers/email'
 import { supabaseAdmin } from '@/lib/supabase'
+import CredentialsProvider from 'next-auth/providers/credentials'
 
 export const authOptions: NextAuthOptions = {
   providers: [
-    EmailProvider({
-      server: {
-        host: 'smtp.resend.com',
-        port: 465,
-        auth: {
-          user: 'resend',
-          pass: process.env.RESEND_API_KEY,
-        },
+    CredentialsProvider({
+      name: 'Token',
+      credentials: {
+        token: { label: 'Token', type: 'text' },
       },
-      from: process.env.RESEND_FROM_EMAIL,
+      async authorize(credentials) {
+        if (!credentials?.token) return null
+        const db = supabaseAdmin()
+        const { data: { user }, error } = await db.auth.getUser(credentials.token)
+        if (error || !user) return null
+        const { data: profile } = await db
+          .from('profiles')
+          .select('id, nombre, email, es_admin')
+          .eq('email', user.email)
+          .single()
+        if (!profile) return null
+        return { id: profile.id, name: profile.nombre, email: profile.email, esAdmin: profile.es_admin }
+      },
     }),
   ],
   callbacks: {
-    async signIn({ user }) {
-      if (!user.email) return false
-      const db = supabaseAdmin()
-      const { data } = await db
-        .from('profiles')
-        .select('id')
-        .eq('email', user.email)
-        .single()
-      return !!data
-    },
-    async session({ session }) {
-      if (!session.user?.email) return session
-      const db = supabaseAdmin()
-      const { data } = await db
-        .from('profiles')
-        .select('id, nombre, es_admin')
-        .eq('email', session.user.email)
-        .single()
-      if (data) {
-        session.user.id = data.id
-        session.user.name = data.nombre
-        ;(session.user as any).esAdmin = data.es_admin
+    async session({ session, token }) {
+      if (token) {
+        session.user.id = token.id as string
+        session.user.name = token.name
+        ;(session.user as any).esAdmin = token.esAdmin
       }
       return session
+    },
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = user.id
+        token.esAdmin = (user as any).esAdmin
+      }
+      return token
     },
   },
   pages: {
     signIn: '/login',
-    verifyRequest: '/login?verificar=1',
   },
+  session: { strategy: 'jwt' },
   secret: process.env.NEXTAUTH_SECRET,
 }
