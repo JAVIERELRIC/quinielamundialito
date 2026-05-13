@@ -162,3 +162,132 @@ insert into public.partidos (id, grupo, equipo_a, equipo_b, jornada) values
 (67,'L','Inglaterra','Croacia',1),(68,'L','Ghana','Panamá',1),
 (69,'L','Inglaterra','Ghana',2),(70,'L','Croacia','Panamá',2),
 (71,'L','Inglaterra','Panamá',3),(72,'L','Croacia','Ghana',3);
+
+-- =====================================================
+-- ACTUALIZACIÓN — Fases eliminatorias
+-- Ejecuta esto en Supabase SQL Editor DESPUÉS del schema inicial
+-- =====================================================
+
+-- Agregar columna puntos_valor a partidos
+ALTER TABLE public.partidos ADD COLUMN IF NOT EXISTS puntos_valor integer DEFAULT 1;
+ALTER TABLE public.partidos ADD COLUMN IF NOT EXISTS fase text DEFAULT 'grupos';
+
+-- Actualizar partidos de grupos ya existentes
+UPDATE public.partidos SET puntos_valor = 1, fase = 'grupos';
+
+-- Tabla para pick del campeón
+CREATE TABLE IF NOT EXISTS public.picks_campeon (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  equipo text NOT NULL,
+  puntos integer DEFAULT 0,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(user_id)
+);
+
+ALTER TABLE public.picks_campeon ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Ver pick campeon propio" ON public.picks_campeon FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Insertar pick campeon propio" ON public.picks_campeon FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Actualizar pick campeon propio" ON public.picks_campeon FOR UPDATE USING (auth.uid() = user_id);
+
+-- Insertar partidos de eliminatorias con equipos genéricos
+INSERT INTO public.partidos (id, grupo, equipo_a, equipo_b, jornada, fase, puntos_valor) VALUES
+-- 16avos de final (32 partidos)
+(73, '16avos', '1A', '2B', 4, '16avos', 2),
+(74, '16avos', '1B', '2A', 4, '16avos', 2),
+(75, '16avos', '1C', '2D', 4, '16avos', 2),
+(76, '16avos', '1D', '2C', 4, '16avos', 2),
+(77, '16avos', '1E', '2F', 4, '16avos', 2),
+(78, '16avos', '1F', '2E', 4, '16avos', 2),
+(79, '16avos', '1G', '2H', 4, '16avos', 2),
+(80, '16avos', '1H', '2G', 4, '16avos', 2),
+(81, '16avos', '1I', '2J', 4, '16avos', 2),
+(82, '16avos', '1J', '2I', 4, '16avos', 2),
+(83, '16avos', '1K', '2L', 4, '16avos', 2),
+(84, '16avos', '1L', '2K', 4, '16avos', 2),
+(85, '16avos', '3A/B/C/D', '3E/F/G/H', 4, '16avos', 2),
+(86, '16avos', '3I/J/K/L', '3A/B/E/F', 4, '16avos', 2),
+(87, '16avos', '3C/D/G/H', '3A/B/I/J', 4, '16avos', 2),
+(88, '16avos', '3E/F/K/L', '3C/D/I/J', 4, '16avos', 2),
+-- Octavos de final (8 partidos)
+(89, 'Octavos', 'G16avos-1', 'G16avos-2', 5, 'octavos', 3),
+(90, 'Octavos', 'G16avos-3', 'G16avos-4', 5, 'octavos', 3),
+(91, 'Octavos', 'G16avos-5', 'G16avos-6', 5, 'octavos', 3),
+(92, 'Octavos', 'G16avos-7', 'G16avos-8', 5, 'octavos', 3),
+(93, 'Octavos', 'G16avos-9', 'G16avos-10', 5, 'octavos', 3),
+(94, 'Octavos', 'G16avos-11', 'G16avos-12', 5, 'octavos', 3),
+(95, 'Octavos', 'G16avos-13', 'G16avos-14', 5, 'octavos', 3),
+(96, 'Octavos', 'G16avos-15', 'G16avos-16', 5, 'octavos', 3),
+-- Cuartos de final (4 partidos)
+(97, 'Cuartos', 'GOctavos-1', 'GOctavos-2', 6, 'cuartos', 4),
+(98, 'Cuartos', 'GOctavos-3', 'GOctavos-4', 6, 'cuartos', 4),
+(99, 'Cuartos', 'GOctavos-5', 'GOctavos-6', 6, 'cuartos', 4),
+(100, 'Cuartos', 'GOctavos-7', 'GOctavos-8', 6, 'cuartos', 4),
+-- Semifinales (2 partidos)
+(101, 'Semis', 'GCuartos-1', 'GCuartos-2', 7, 'semis', 6),
+(102, 'Semis', 'GCuartos-3', 'GCuartos-4', 7, 'semis', 6),
+-- Tercer lugar
+(103, 'Tercer lugar', 'Perdedor Semi 1', 'Perdedor Semi 2', 8, 'tercer_lugar', 4),
+-- Final
+(104, 'Final', 'Finalista 1', 'Finalista 2', 8, 'final', 8);
+
+-- Actualizar función de calcular puntos para usar puntos_valor
+CREATE OR REPLACE FUNCTION calcular_puntos_partido(p_partido_id integer)
+RETURNS void AS $$
+DECLARE
+  v_goles_a integer;
+  v_goles_b integer;
+  v_resultado text;
+  v_puntos_valor integer;
+  v_pick record;
+BEGIN
+  SELECT goles_a, goles_b, puntos_valor INTO v_goles_a, v_goles_b, v_puntos_valor
+  FROM public.partidos WHERE id = p_partido_id;
+
+  IF v_goles_a IS NULL OR v_goles_b IS NULL THEN RETURN; END IF;
+
+  IF v_goles_a > v_goles_b THEN v_resultado := 'A';
+  ELSIF v_goles_b > v_goles_a THEN v_resultado := 'B';
+  ELSE v_resultado := 'empate';
+  END IF;
+
+  FOR v_pick IN SELECT * FROM public.picks WHERE partido_id = p_partido_id LOOP
+    IF v_pick.pick = v_resultado THEN
+      UPDATE public.picks SET puntos = v_puntos_valor, updated_at = now() WHERE id = v_pick.id;
+    ELSE
+      UPDATE public.picks SET puntos = 0, updated_at = now() WHERE id = v_pick.id;
+    END IF;
+  END LOOP;
+
+  INSERT INTO public.posiciones (user_id, puntos_total, picks_correctos, picks_totales, updated_at)
+  SELECT p.user_id, sum(p.puntos) as puntos_total,
+    count(case when p.puntos > 0 then 1 end) as picks_correctos,
+    count(*) as picks_totales, now()
+  FROM public.picks p GROUP BY p.user_id
+  ON CONFLICT (user_id) DO UPDATE SET
+    puntos_total = excluded.puntos_total,
+    picks_correctos = excluded.picks_correctos,
+    picks_totales = excluded.picks_totales,
+    updated_at = now();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Función para otorgar 10 puntos al campeón
+CREATE OR REPLACE FUNCTION calcular_puntos_campeon(p_campeon text)
+RETURNS void AS $$
+BEGIN
+  UPDATE public.picks_campeon SET puntos = CASE WHEN equipo = p_campeon THEN 10 ELSE 0 END;
+  
+  INSERT INTO public.posiciones (user_id, puntos_total, picks_correctos, picks_totales, updated_at)
+  SELECT p.user_id,
+    COALESCE((SELECT sum(pk.puntos) FROM public.picks pk WHERE pk.user_id = p.user_id), 0) + p.puntos,
+    COALESCE((SELECT count(*) FROM public.picks pk WHERE pk.user_id = p.user_id AND pk.puntos > 0), 0),
+    COALESCE((SELECT count(*) FROM public.picks pk WHERE pk.user_id = p.user_id), 0),
+    now()
+  FROM public.picks_campeon p
+  ON CONFLICT (user_id) DO UPDATE SET
+    puntos_total = excluded.puntos_total,
+    updated_at = now();
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;

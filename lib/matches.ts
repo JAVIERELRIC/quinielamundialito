@@ -111,3 +111,11 @@ export const matchesByGrupo = (grupo: string) =>
 
 export const getMatch = (id: number) =>
   MATCHES.find(m => m.id === id)
+
+export const FASES_ELIMINATORIAS = ['16avos', 'octavos', 'cuartos', 'semis', 'tercer_lugar', 'final']
+export const TODAS_JORNADAS = [1, 2, 3, 4, 5, 6, 7, 8]
+
+export const JORNADA_LABELS: Record<number, string> = {
+  1: 'Jornada 1', 2: 'Jornada 2', 3: 'Jornada 3',
+  4: '16avos', 5: 'Octavos', 6: 'Cuartos', 7: 'Semis', 8: 'Final'
+}
