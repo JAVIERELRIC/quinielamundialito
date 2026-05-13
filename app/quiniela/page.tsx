@@ -2,12 +2,13 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
-import { MATCHES, GRUPOS, JORNADAS } from '@/lib/matches'
+import { GRUPOS } from '@/lib/matches'
 
 type Pick = 'A' | 'empate' | 'B'
 type PicksMap = Record<number, Pick>
 type ResultadosMap = Record<number, { goles_a: number; goles_b: number }>
 type PosicionRow = { nombre: string; puntos_total: number; picks_correctos: number; picks_totales: number }
+type Match = { id: number; grupo: string; equipo_a: string; equipo_b: string; jornada: number; fase: string; cerrado: boolean }
 type UserProfile = { id: string; nombre: string; email: string; es_admin: boolean }
 
 export default function QuinielaPage() {
@@ -16,6 +17,8 @@ export default function QuinielaPage() {
   const [tab, setTab] = useState<'picks' | 'tabla' | 'admin'>('picks')
   const [jornadaActiva, setJornadaActiva] = useState(1)
   const [grupoActivo, setGrupoActivo] = useState('todos')
+  const [partidos, setPartidos] = useState<Match[]>([])
+  const [jornadas, setJornadas] = useState<number[]>([1,2,3])
   const [picks, setPicks] = useState<PicksMap>({})
   const [pendientes, setPendientes] = useState<Set<number>>(new Set())
   const [resultados, setResultados] = useState<ResultadosMap>({})
@@ -31,6 +34,13 @@ export default function QuinielaPage() {
         .from('profiles').select('*').eq('email', session.user.email).single()
       if (!prof) { router.push('/login'); return }
       setProfile(prof)
+      // Cargar todos los partidos desde Supabase
+      const { data: todosPartidos } = await supabase.from('partidos').select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado').order('id')
+      if (todosPartidos) {
+        setPartidos(todosPartidos)
+        const jornadasUnicas: number[] = [...new Set(todosPartidos.map((p: any) => p.jornada as number))].sort((a,b) => a-b)
+        setJornadas(jornadasUnicas)
+      }
       // Cargar picks
       const { data: picksData } = await supabase
         .from('picks').select('partido_id, pick').eq('user_id', prof.id)
@@ -77,10 +87,10 @@ export default function QuinielaPage() {
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000) }
 
-  const matchesFiltrados = MATCHES.filter(m =>
+  const matchesFiltrados = partidos.filter(m =>
     m.jornada === jornadaActiva && (grupoActivo === 'todos' || m.grupo === grupoActivo)
   )
-  const totalPicks = MATCHES.length
+  const totalPicks = partidos.length
   const llenados = Object.keys(picks).length
   const pct = Math.round((llenados / totalPicks) * 100)
 
@@ -127,10 +137,10 @@ export default function QuinielaPage() {
 
             <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
               <div className="flex gap-1 bg-white rounded-lg border border-gray-200 p-1 shrink-0">
-                {JORNADAS.map(j => (
+                {jornadas.map(j => (
                   <button key={j} onClick={() => setJornadaActiva(j)}
                     className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${jornadaActiva === j ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
-                    J{j}
+                    {['J1','J2','J3','16avos','Octavos','Cuartos','Semis','Final'][j-1] || 'J'+j}
                   </button>
                 ))}
               </div>
@@ -162,13 +172,13 @@ export default function QuinielaPage() {
                       {res && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${acerto ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>{res.goles_a}–{res.goles_b} {acerto ? '✅' : '❌'}</span>}
                     </div>
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="flex-1 text-sm font-medium text-gray-900">{m.equipoA}</span>
+                      <span className="flex-1 text-sm font-medium text-gray-900">{m.equipo_a}</span>
                       <span className="text-xs text-gray-400">vs</span>
-                      <span className="flex-1 text-sm font-medium text-gray-900 text-right">{m.equipoB}</span>
+                      <span className="flex-1 text-sm font-medium text-gray-900 text-right">{m.equipo_b}</span>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
-                      {(['A', 'empate', 'B'] as Pick[]).map(op => {
-                        const label = op === 'A' ? m.equipoA.split(' ')[0] : op === 'B' ? m.equipoB.split(' ')[0] : 'Empate'
+                      {(m.fase === 'grupos' ? ['A', 'empate', 'B'] : ['A', 'B'] as Pick[]).map(op => {
+                        const label = op === 'A' ? m.equipo_a.split(' ')[0] : op === 'B' ? m.equipo_b.split(' ')[0] : 'Empate'
                         const sel = miPick === op
                         const esRes = resultado === op
                         return (
