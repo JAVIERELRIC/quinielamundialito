@@ -177,7 +177,7 @@ export default function QuinielaPage() {
                       <span className="flex-1 text-sm font-medium text-gray-900 text-right">{m.equipo_b}</span>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
-                      {(m.fase === 'grupos' ? ['A', 'empate', 'B'] : ['A', 'B'] as Pick[]).map(op => {
+                      {(m.fase === 'grupos' ? (['A', 'empate', 'B'] as Pick[]) : (['A', 'B'] as Pick[])).map(op => {
                         const label = op === 'A' ? m.equipo_a.split(' ')[0] : op === 'B' ? m.equipo_b.split(' ')[0] : 'Empate'
                         const sel = miPick === op
                         const esRes = resultado === op
