@@ -38,7 +38,7 @@ export default function QuinielaPage() {
       const { data: todosPartidos } = await supabase.from('partidos').select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado').order('id')
       if (todosPartidos) {
         setPartidos(todosPartidos)
-        const jornadasUnicas: number[] = [...new Set(todosPartidos.map((p: any) => p.jornada as number))].sort((a,b) => a-b)
+        const jornadasUnicas: number[] = Array.from(new Set(todosPartidos.map((p: any) => p.jornada as number))).sort((a,b) => a-b)
         setJornadas(jornadasUnicas)
       }
       // Cargar picks
