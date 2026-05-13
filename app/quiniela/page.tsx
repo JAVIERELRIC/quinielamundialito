@@ -20,12 +20,16 @@ export default function QuinielaPage() {
   const [partidos, setPartidos] = useState<Match[]>([])
   const [jornadas, setJornadas] = useState<number[]>([1,2,3])
   const [picks, setPicks] = useState<PicksMap>({})
+  const [savedPicks, setSavedPicks] = useState<Set<number>>(new Set())
   const [pendientes, setPendientes] = useState<Set<number>>(new Set())
   const [resultados, setResultados] = useState<ResultadosMap>({})
   const [posiciones, setPosiciones] = useState<PosicionRow[]>([])
   const [guardando, setGuardando] = useState(false)
   const [toast, setToast] = useState('')
   const [loading, setLoading] = useState(true)
+  const [pickCampeon, setPickCampeon] = useState<string | null>(null)
+  const [campeonGuardado, setCampeonGuardado] = useState(false)
+  const [equipos, setEquipos] = useState<string[]>([])
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -46,6 +50,7 @@ export default function QuinielaPage() {
         .from('picks').select('partido_id, pick').eq('user_id', prof.id)
       const map: PicksMap = {}
       picksData?.forEach((p: any) => { map[p.partido_id] = p.pick })
+      setSavedPicks(new Set(picksData?.map((p: any) => p.partido_id) || []))
       setPicks(map)
       // Cargar resultados y posiciones
       const { data: partidos } = await supabase
@@ -59,6 +64,15 @@ export default function QuinielaPage() {
         ...p, nombre: profs?.find((pr: any) => pr.id === p.user_id)?.nombre || '?'
       })) || []
       setPosiciones(posConNombre)
+      // Cargar pick del campeon
+      const { data: campeonData } = await supabase.from('picks_campeon').select('equipo').eq('user_id', prof.id).single()
+      if (campeonData) { setPickCampeon(campeonData.equipo); setCampeonGuardado(true) }
+      // Lista de equipos de grupos para el pick del campeon
+      const { data: equiposData } = await supabase.from('partidos').select('equipo_a, equipo_b').eq('fase', 'grupos')
+      if (equiposData) {
+        const todos = equiposData.flatMap((p: any) => [p.equipo_a, p.equipo_b])
+        setEquipos([...new Set(todos)].sort())
+      }
       setLoading(false)
     })
   }, [])
@@ -68,6 +82,12 @@ export default function QuinielaPage() {
     router.push('/login')
   }
 
+  async function guardarCampeon(equipo: string) {
+    if (!profile || campeonGuardado) return
+    const { error } = await supabase.from('picks_campeon').upsert({ user_id: profile.id, equipo }, { onConflict: 'user_id' })
+    if (!error) { setPickCampeon(equipo); setCampeonGuardado(true); showToast('🏆 Campeón guardado: ' + equipo) }
+    else showToast('❌ Error al guardar')
+  }
   function setPick(partidoId: number, pick: Pick) {
     setPicks(prev => ({ ...prev, [partidoId]: pick }))
     setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
@@ -81,7 +101,7 @@ export default function QuinielaPage() {
       .map(id => ({ user_id: profile.id, partido_id: id, pick: picks[id], updated_at: new Date().toISOString() }))
     const { error } = await supabase.from('picks').upsert(rows, { onConflict: 'user_id,partido_id' })
     setGuardando(false)
-    if (!error) { setPendientes(new Set()); showToast(`✅ ${rows.length} picks guardados`) }
+    if (!error) { setSavedPicks(prev => { const s = new Set(prev); rows.forEach((r: any) => s.add(r.partido_id)); return s }); setPendientes(new Set()); showToast(`✅ ${rows.length} picks guardados`) }
     else showToast('❌ Error al guardar')
   }
 
@@ -158,6 +178,29 @@ export default function QuinielaPage() {
               </div>
             </div>
 
+            {jornadaActiva === 4 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xl">🏆</span>
+                  <div>
+                    <p className="font-semibold text-amber-900 text-sm">Pick del Campeón — 10 puntos</p>
+                    <p className="text-xs text-amber-700">{campeonGuardado ? "Ya elegiste tu campeón — no se puede cambiar" : "Elige ahora, no podrás cambiarlo después"}</p>
+                  </div>
+                </div>
+                {campeonGuardado ? (
+                  <div className="bg-amber-100 rounded-lg px-4 py-2 text-center">
+                    <span className="font-semibold text-amber-900">🏆 Tu campeón: {pickCampeon}</span>
+                  </div>
+                ) : (
+                  <select onChange={e => e.target.value && guardarCampeon(e.target.value)} defaultValue=""
+                    className="w-full border border-amber-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-400">
+                    <option value="">-- Elige tu campeón --</option>
+                    {equipos.map(eq => <option key={eq} value={eq}>{eq}</option>)}
+                  </select>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2 mb-4">
               {matchesFiltrados.map(m => {
                 const res = resultados[m.id]
@@ -182,8 +225,8 @@ export default function QuinielaPage() {
                         const sel = miPick === op
                         const esRes = resultado === op
                         return (
-                          <button key={op} disabled={!!res} onClick={() => setPick(m.id, op)}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all ${res && esRes ? 'bg-green-100 border-green-400 text-green-800' : sel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${res ? 'cursor-default' : ''}`}>
+                          <button key={op} disabled={!!res || savedPicks.has(m.id)} onClick={() => setPick(m.id, op)}
+                            className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all ${res && esRes ? 'bg-green-100 border-green-400 text-green-800' : sel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${(res || savedPicks.has(m.id)) ? 'cursor-default opacity-80' : ''}`}>
                             {label}
                           </button>
                         )
@@ -223,13 +266,13 @@ export default function QuinielaPage() {
           </div>
         )}
 
-        {tab === 'admin' && profile?.es_admin && <AdminPanel showToast={showToast} />}
+        {tab === 'admin' && profile?.es_admin && <AdminPanel showToast={showToast} adminEmail={profile.email} />}
       </main>
     </div>
   )
 }
 
-function AdminPanel({ showToast }: { showToast: (m: string) => void }) {
+function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void; adminEmail: string }) {
   const [invEmail, setInvEmail] = useState('')
   const [invNombre, setInvNombre] = useState('')
   const [partidoId, setPartidoId] = useState('')
@@ -247,7 +290,7 @@ function AdminPanel({ showToast }: { showToast: (m: string) => void }) {
 
   async function cargarResultado(e: React.FormEvent) {
     e.preventDefault()
-    const res = await fetch('/api/results', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partido_id: parseInt(partidoId), goles_a: parseInt(golesA), goles_b: parseInt(golesB) }) })
+    const res = await fetch('/api/results', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partido_id: parseInt(partidoId), goles_a: parseInt(golesA), goles_b: parseInt(golesB), admin_email: adminEmail }) })
     const data = await res.json()
     if (data.ok) { showToast('✅ Resultado cargado'); setPartidoId(''); setGolesA(''); setGolesB('') }
     else showToast('❌ ' + data.error)
@@ -255,7 +298,7 @@ function AdminPanel({ showToast }: { showToast: (m: string) => void }) {
 
   async function enviarRecordatorio(jornada: number | null) {
     setEnviando(true)
-    const res = await fetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jornada }) })
+    const res = await fetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jornada, admin_email: adminEmail }) })
     const data = await res.json()
     setEnviando(false)
     showToast(`✅ Recordatorio enviado a ${data.enviados} personas`)
