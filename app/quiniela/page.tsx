@@ -246,24 +246,7 @@ export default function QuinielaPage() {
         )}
 
         {tab === 'tabla' && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-4 py-3 border-b border-gray-100">
-              <h2 className="font-semibold text-gray-900">Clasificación general</h2>
-            </div>
-            {posiciones.length === 0
-              ? <p className="text-center text-gray-400 text-sm py-8">Los resultados aparecen aquí cuando el admin los cargue</p>
-              : posiciones.sort((a, b) => b.puntos_total - a.puntos_total).map((p, i) => (
-                <div key={i} className={`flex items-center gap-3 px-4 py-3 border-b border-gray-50 last:border-0 ${p.nombre === profile?.nombre ? 'bg-blue-50' : ''}`}>
-                  <span className="text-sm font-medium text-gray-400 w-5">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{p.nombre} {p.nombre === profile?.nombre && <span className="text-xs text-blue-500">(tú)</span>}</p>
-                    <p className="text-xs text-gray-400">{p.picks_correctos} aciertos de {p.picks_totales}</p>
-                  </div>
-                  <span className="text-base font-semibold text-blue-700">{p.puntos_total} pts</span>
-                </div>
-              ))
-            }
-          </div>
+          <TablaDetalle posiciones={posiciones} profile={profile} supabase={supabase} />
         )}
 
         {tab === 'admin' && profile?.es_admin && <AdminPanel showToast={showToast} adminEmail={profile.email} />}
@@ -271,6 +254,122 @@ export default function QuinielaPage() {
     </div>
   )
 }
+
+type DetalleRow = { partido_id: number; equipo_a: string; equipo_b: string; pick: string; goles_a: number | null; goles_b: number | null; puntos: number; fase: string }
+
+function TablaDetalle({ posiciones, profile, supabase }: { posiciones: any[]; profile: any; supabase: any }) {
+  const [vistaDetalle, setVistaDetalle] = useState<string | null>(null)
+  const [detalle, setDetalle] = useState<DetalleRow[]>([])
+  const [loadingDetalle, setLoadingDetalle] = useState(false)
+
+  async function verDetalle(userId: string, nombre: string) {
+    if (vistaDetalle === nombre) { setVistaDetalle(null); return }
+    setLoadingDetalle(true)
+    setVistaDetalle(nombre)
+    const { data: picksData } = await supabase
+      .from('picks')
+      .select('partido_id, pick, puntos')
+      .eq('user_id', userId)
+    const { data: partidosData } = await supabase
+      .from('partidos')
+      .select('id, equipo_a, equipo_b, goles_a, goles_b, fase')
+      .order('id')
+    const rows: DetalleRow[] = (picksData || []).map((p: any) => {
+      const partido = partidosData?.find((pt: any) => pt.id === p.partido_id)
+      return {
+        partido_id: p.partido_id,
+        equipo_a: partido?.equipo_a || '?',
+        equipo_b: partido?.equipo_b || '?',
+        pick: p.pick,
+        goles_a: partido?.goles_a ?? null,
+        goles_b: partido?.goles_b ?? null,
+        puntos: p.puntos,
+        fase: partido?.fase || 'grupos',
+      }
+    }).sort((a: DetalleRow, b: DetalleRow) => a.partido_id - b.partido_id)
+    setDetalle(rows)
+    setLoadingDetalle(false)
+  }
+
+  const faseLabel: Record<string, string> = {
+    grupos: 'Grupos', '16avos': '16avos', octavos: 'Octavos',
+    cuartos: 'Cuartos', semis: 'Semis', tercer_lugar: '3er lugar', final: 'Final'
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100">
+          <h2 className="font-semibold text-gray-900">Clasificación general</h2>
+          <p className="text-xs text-gray-400 mt-0.5">Toca un nombre para ver el detalle</p>
+        </div>
+        {posiciones.length === 0
+          ? <p className="text-center text-gray-400 text-sm py-8">Los resultados aparecen aquí cuando el admin los cargue</p>
+          : [...posiciones].sort((a, b) => b.puntos_total - a.puntos_total).map((p, i) => (
+            <div key={i}>
+              <button onClick={() => verDetalle(p.user_id, p.nombre)}
+                className={`w-full flex items-center gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${p.nombre === profile?.nombre ? 'bg-blue-50' : ''}`}>
+                <span className="text-sm font-medium text-gray-400 w-5">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
+                <div className="flex-1 text-left">
+                  <p className="text-sm font-medium text-gray-900">{p.nombre} {p.nombre === profile?.nombre && <span className="text-xs text-blue-500">(tú)</span>}</p>
+                  <p className="text-xs text-gray-400">{p.picks_correctos} aciertos de {p.picks_totales}</p>
+                </div>
+                <span className="text-base font-semibold text-blue-700">{p.puntos_total} pts</span>
+                <span className="text-gray-400 text-xs">{vistaDetalle === p.nombre ? '▲' : '▼'}</span>
+              </button>
+              {vistaDetalle === p.nombre && (
+                <div className="bg-gray-50 border-b border-gray-100 px-4 py-3">
+                  {loadingDetalle ? (
+                    <p className="text-xs text-gray-400 text-center py-2">Cargando...</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-gray-400 border-b border-gray-200">
+                            <th className="text-left pb-2 font-medium">Partido</th>
+                            <th className="text-center pb-2 font-medium">Resultado</th>
+                            <th className="text-center pb-2 font-medium">Pick</th>
+                            <th className="text-center pb-2 font-medium">Pts</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {detalle.map((d, idx) => {
+                            const tieneResultado = d.goles_a !== null && d.goles_b !== null
+                            const pickLabel = d.pick === 'A' ? d.equipo_a.split(' ')[0] : d.pick === 'B' ? d.equipo_b.split(' ')[0] : 'Empate'
+                            return (
+                              <tr key={idx} className={`border-b border-gray-100 last:border-0 ${d.puntos > 0 ? 'bg-green-50' : tieneResultado ? 'bg-red-50' : ''}`}>
+                                <td className="py-1.5 pr-2">
+                                  <span className="text-gray-500">{faseLabel[d.fase] || d.fase} #{d.partido_id}</span><br/>
+                                  <span className="font-medium text-gray-800">{d.equipo_a} vs {d.equipo_b}</span>
+                                </td>
+                                <td className="py-1.5 text-center text-gray-600">
+                                  {tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}
+                                </td>
+                                <td className="py-1.5 text-center font-medium text-gray-800">{pickLabel}</td>
+                                <td className="py-1.5 text-center font-semibold">
+                                  {tieneResultado ? (
+                                    <span className={d.puntos > 0 ? 'text-green-700' : 'text-red-500'}>
+                                      {d.puntos > 0 ? `+${d.puntos}` : '0'}
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  )
+}
+
 
 function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void; adminEmail: string }) {
   const [invEmail, setInvEmail] = useState('')
