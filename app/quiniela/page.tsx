@@ -317,7 +317,7 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
       <div className="bg-white rounded-xl border border-gray-200 p-4">
         <h3 className="font-medium text-gray-900 mb-3">Cargar resultado</h3>
         <form onSubmit={cargarResultado} className="space-y-2">
-          <input required value={partidoId} onChange={e => setPartidoId(e.target.value)} placeholder="ID del partido (1-72)" type="number" min={1} max={72} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <input required value={partidoId} onChange={e => setPartidoId(e.target.value)} placeholder="ID del partido (1-104)" type="number" min={1} max={104} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           <div className="grid grid-cols-2 gap-2">
             <input required value={golesA} onChange={e => setGolesA(e.target.value)} placeholder="Goles equipo A" type="number" min={0} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             <input required value={golesB} onChange={e => setGolesB(e.target.value)} placeholder="Goles equipo B" type="number" min={0} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
