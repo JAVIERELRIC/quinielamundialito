@@ -71,7 +71,7 @@ export default function QuinielaPage() {
       const { data: equiposData } = await supabase.from('partidos').select('equipo_a, equipo_b').eq('fase', 'grupos')
       if (equiposData) {
         const todos = equiposData.flatMap((p: any) => [p.equipo_a, p.equipo_b])
-        setEquipos([...new Set(todos)].sort())
+        setEquipos(Array.from(new Set(todos)).sort())
       }
       setLoading(false)
     })
