@@ -281,7 +281,7 @@ export default function QuinielaPage() {
         )}
 
         {tab === 'tabla' && (
-          <TablaDetalle posiciones={posiciones} profile={profile} supabase={supabase} />
+          <TablaDetalle posiciones={posiciones} profile={profile} supabase={supabase} partidos={partidos} jornadas={jornadas} />
         )}
 
 
@@ -352,8 +352,49 @@ export default function QuinielaPage() {
 }
 
 type DetalleRow = { partido_id: number; equipo_a: string; equipo_b: string; pick: string; goles_a: number | null; goles_b: number | null; puntos: number; fase: string }
+type PicksGlobales = Record<string, Record<number, string>> // user_id -> partido_id -> pick
 
-function TablaDetalle({ posiciones, profile, supabase }: { posiciones: any[]; profile: any; supabase: any }) {
+function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas }: { posiciones: any[]; profile: any; supabase: any; partidos: any[]; jornadas: number[] }) {
+  const [vistaMode, setVistaMode] = useState<'ranking' | 'picks'>('ranking')
+  const [jornadaFiltro, setJornadaFiltro] = useState(1)
+  const [grupoFiltro, setGrupoFiltro] = useState('todos')
+  const [picksGlobales, setPicksGlobales] = useState<PicksGlobales>({})
+  const [loadingPicks, setLoadingPicks] = useState(false)
+  const [perfiles, setPerfiles] = useState<any[]>([])
+
+  const JORNADA_LABELS2: Record<number, string> = {1:'J1',2:'J2',3:'J3',4:'16avos',5:'Octavos',6:'Cuartos',7:'Semis',8:'Final'}
+  const grupos = ['todos', ...Array.from(new Set(partidos.filter(p => p.jornada === jornadaFiltro && p.grupo.length <= 2).map(p => p.grupo))).sort()]
+
+  async function cargarPicksGlobales() {
+    if (Object.keys(picksGlobales).length > 0) return
+    setLoadingPicks(true)
+    const { data: allPicks } = await supabase.from('picks').select('user_id, partido_id, pick')
+    const { data: profs } = await supabase.from('profiles').select('id, nombre')
+    const map: PicksGlobales = {}
+    allPicks?.forEach((p: any) => {
+      if (!map[p.user_id]) map[p.user_id] = {}
+      map[p.user_id][p.partido_id] = p.pick
+    })
+    setPicksGlobales(map)
+    setPerfiles(profs || [])
+    setLoadingPicks(false)
+  }
+
+  function switchToPicks() {
+    setVistaMode('picks')
+    cargarPicksGlobales()
+  }
+
+  const partidosFiltrados = partidos.filter(p =>
+    p.jornada === jornadaFiltro && (grupoFiltro === 'todos' || p.grupo === grupoFiltro)
+  )
+
+  const pickLabel = (pick: string, pa: string, pb: string) => {
+    if (pick === 'A') return pa.split(' ')[0]
+    if (pick === 'B') return pb.split(' ')[0]
+    if (pick === 'empate') return 'Emp'
+    return '—'
+  }
   const [vistaDetalle, setVistaDetalle] = useState<string | null>(null)
   const [detalle, setDetalle] = useState<DetalleRow[]>([])
   const [loadingDetalle, setLoadingDetalle] = useState(false)
@@ -394,7 +435,86 @@ function TablaDetalle({ posiciones, profile, supabase }: { posiciones: any[]; pr
 
   return (
     <div className="space-y-3">
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Toggle ranking / picks */}
+      <div className="flex gap-1 bg-white rounded-xl border border-gray-200 p-1">
+        <button onClick={() => setVistaMode('ranking')}
+          className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'ranking' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+          🏆 Ranking
+        </button>
+        <button onClick={switchToPicks}
+          className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'picks' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+          👀 Ver picks de todos
+        </button>
+      </div>
+
+      {/* Vista picks de todos */}
+      {vistaMode === 'picks' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 shrink-0">
+                {jornadas.map(j => (
+                  <button key={j} onClick={() => setJornadaFiltro(j)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${jornadaFiltro === j ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+                    {JORNADA_LABELS2[j] || 'J'+j}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
+                {grupos.map(g => (
+                  <button key={g} onClick={() => setGrupoFiltro(g)}
+                    className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${grupoFiltro === g ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
+                    {g === 'todos' ? 'Todos' : g}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          {loadingPicks ? (
+            <p className="text-center text-gray-400 text-sm py-8">Cargando picks...</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-max">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-3 py-2 font-medium text-gray-500 sticky left-0 bg-gray-50">Partido</th>
+                    {perfiles.map(p => (
+                      <th key={p.id} className={`px-3 py-2 font-medium text-center whitespace-nowrap ${p.id === profile?.id ? 'text-blue-600' : 'text-gray-500'}`}>
+                        {p.nombre.split(' ')[0]}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {partidosFiltrados.map(m => (
+                    <tr key={m.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                      <td className="px-3 py-2 sticky left-0 bg-white">
+                        <span className="font-medium text-gray-800">{m.equipo_a.split(' ')[0]} vs {m.equipo_b.split(' ')[0]}</span>
+                        {m.goles_a !== null && <span className="ml-1 text-gray-400">({m.goles_a}-{m.goles_b})</span>}
+                      </td>
+                      {perfiles.map(p => {
+                        const pick = picksGlobales[p.id]?.[m.id]
+                        const tieneResultado = m.goles_a !== null
+                        let resultado: string | null = null
+                        if (tieneResultado) resultado = m.goles_a > m.goles_b ? 'A' : m.goles_b > m.goles_a ? 'B' : 'empate'
+                        const acerto = pick && resultado && pick === resultado
+                        return (
+                          <td key={p.id} className={`px-3 py-2 text-center font-medium ${tieneResultado && pick ? (acerto ? 'text-green-700 bg-green-50' : 'text-red-500 bg-red-50') : 'text-gray-600'}`}>
+                            {pick ? pickLabel(pick, m.equipo_a, m.equipo_b) : <span className="text-gray-300">—</span>}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vista ranking */}
+      {vistaMode === 'ranking' && <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">Clasificación general</h2>
           <p className="text-xs text-gray-400 mt-0.5">Toca un nombre para ver el detalle</p>
@@ -461,7 +581,7 @@ function TablaDetalle({ posiciones, profile, supabase }: { posiciones: any[]; pr
             </div>
           ))
         }
-      </div>
+      </div>}
     </div>
   )
 }
