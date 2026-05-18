@@ -291,3 +291,10 @@ BEGIN
     updated_at = now();
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- =====================================================
+-- CRITERIO DE DESEMPATE — Marcador exacto de la Final
+-- Ejecuta esto en Supabase SQL Editor
+-- =====================================================
+ALTER TABLE public.picks ADD COLUMN IF NOT EXISTS goles_a_pred integer;
+ALTER TABLE public.picks ADD COLUMN IF NOT EXISTS goles_b_pred integer;

@@ -14,7 +14,7 @@ type UserProfile = { id: string; nombre: string; email: string; es_admin: boolea
 export default function QuinielaPage() {
   const router = useRouter()
   const [profile, setProfile] = useState<UserProfile | null>(null)
-  const [tab, setTab] = useState<'picks' | 'tabla' | 'admin'>('picks')
+  const [tab, setTab] = useState<'picks' | 'tabla' | 'reglas' | 'admin'>('picks')
   const [jornadaActiva, setJornadaActiva] = useState(1)
   const [grupoActivo, setGrupoActivo] = useState('todos')
   const [partidos, setPartidos] = useState<Match[]>([])
@@ -29,6 +29,7 @@ export default function QuinielaPage() {
   const [loading, setLoading] = useState(true)
   const [pickCampeon, setPickCampeon] = useState<string | null>(null)
   const [campeonGuardado, setCampeonGuardado] = useState(false)
+  const [predicciones, setPredicciones] = useState<Record<number, {a: number, b: number}>>({})
   const [equipos, setEquipos] = useState<string[]>([])
 
   useEffect(() => {
@@ -98,7 +99,14 @@ export default function QuinielaPage() {
     setGuardando(true)
     const rows = Array.from(pendientes)
       .filter(id => picks[id])
-      .map(id => ({ user_id: profile.id, partido_id: id, pick: picks[id], updated_at: new Date().toISOString() }))
+      .map(id => ({ 
+        user_id: profile.id, 
+        partido_id: id, 
+        pick: picks[id], 
+        goles_a_pred: predicciones[id]?.a ?? null,
+        goles_b_pred: predicciones[id]?.b ?? null,
+        updated_at: new Date().toISOString() 
+      }))
     const { error } = await supabase.from('picks').upsert(rows, { onConflict: 'user_id,partido_id' })
     setGuardando(false)
     if (!error) { setSavedPicks(prev => { const s = new Set(prev); rows.forEach((r: any) => s.add(r.partido_id)); return s }); setPendientes(new Set()); showToast(`✅ ${rows.length} picks guardados`) }
@@ -130,10 +138,10 @@ export default function QuinielaPage() {
           </div>
         </div>
         <div className="max-w-2xl mx-auto px-4 flex gap-1">
-          {(['picks', 'tabla', ...(profile?.es_admin ? ['admin'] : [])] as const).map(t => (
+          {(['picks', 'tabla', 'reglas', ...(profile?.es_admin ? ['admin'] : [])] as const).map(t => (
             <button key={t} onClick={() => setTab(t as any)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === t ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
-              {t === 'picks' ? '✏️ Mis picks' : t === 'tabla' ? '🏆 Tabla' : '⚙️ Admin'}
+              {t === 'picks' ? '✏️ Mis picks' : t === 'tabla' ? '🏆 Tabla' : t === 'reglas' ? '📋 Reglas' : '⚙️ Admin'}
             </button>
           ))}
         </div>
@@ -232,6 +240,33 @@ export default function QuinielaPage() {
                         )
                       })}
                     </div>
+                    {m.fase === 'final' && (
+                      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+                        <p className="text-xs font-medium text-amber-800 mb-2">🏆 Criterio de desempate — Marca el marcador exacto (inc. tiempo extra)</p>
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="text-center">
+                            <p className="text-xs text-gray-500 mb-1">{m.equipo_a}</p>
+                            <input type="number" min={0} max={20}
+                              disabled={savedPicks.has(m.id) || !!res}
+                              value={predicciones[m.id]?.a ?? ''}
+                              onChange={e => setPredicciones(prev => ({ ...prev, [m.id]: { ...prev[m.id], a: parseInt(e.target.value) || 0 } }))}
+                              className="w-14 text-center border border-amber-300 rounded-lg py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:bg-gray-50" />
+                          </div>
+                          <span className="text-lg font-bold text-gray-400 mt-4">-</span>
+                          <div className="text-center">
+                            <p className="text-xs text-gray-500 mb-1">{m.equipo_b}</p>
+                            <input type="number" min={0} max={20}
+                              disabled={savedPicks.has(m.id) || !!res}
+                              value={predicciones[m.id]?.b ?? ''}
+                              onChange={e => setPredicciones(prev => ({ ...prev, [m.id]: { ...prev[m.id], b: parseInt(e.target.value) || 0 } }))}
+                              className="w-14 text-center border border-amber-300 rounded-lg py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:bg-gray-50" />
+                          </div>
+                        </div>
+                        {res && (
+                          <p className="text-xs text-center text-amber-700 mt-2">Resultado real: {res.goles_a}-{res.goles_b}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -247,6 +282,67 @@ export default function QuinielaPage() {
 
         {tab === 'tabla' && (
           <TablaDetalle posiciones={posiciones} profile={profile} supabase={supabase} />
+        )}
+
+
+        {tab === 'reglas' && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h2 className="font-semibold text-gray-900 mb-4 text-base">📋 Reglas de la Quiniela</h2>
+
+              <div className="space-y-4">
+                <div>
+                  <h3 className="font-medium text-green-700 text-sm mb-2">✏️ Cómo llenar picks</h3>
+                  <ul className="text-sm text-gray-600 space-y-1.5">
+                    <li>• En fase de grupos elige: <strong>Local</strong>, <strong>Empate</strong> o <strong>Visitante</strong></li>
+                    <li>• En eliminatorias (16avos en adelante) solo <strong>Local</strong> o <strong>Visitante</strong> — no hay empate</li>
+                    <li>• Una vez que presionas <strong>"Guardar picks"</strong>, no puedes cambiarlos</li>
+                    <li>• Los picks también se bloquean cuando el admin carga el resultado</li>
+                  </ul>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <h3 className="font-medium text-blue-700 text-sm mb-2">🏆 Pick del Campeón</h3>
+                  <ul className="text-sm text-gray-600 space-y-1.5">
+                    <li>• Se elige cuando inicia la fase de <strong>16avos de final</strong></li>
+                    <li>• No se puede cambiar una vez guardado</li>
+                    <li>• Si aciertas quién gana el Mundial: <strong>+10 puntos</strong></li>
+                  </ul>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <h3 className="font-medium text-amber-700 text-sm mb-2">⭐ Puntuación por fase</h3>
+                  <div className="space-y-1.5">
+                    {[
+                      ['Fase de grupos', '1 punto por acierto'],
+                      ['16avos de final', '2 puntos por acierto'],
+                      ['Octavos de final', '3 puntos por acierto'],
+                      ['Cuartos de final', '4 puntos por acierto'],
+                      ['Tercer lugar', '4 puntos por acierto'],
+                      ['Semifinales', '6 puntos por acierto'],
+                      ['Final', '8 puntos por acierto'],
+                      ['Pick del Campeón', '10 puntos si aciertas'],
+                    ].map(([fase, pts]) => (
+                      <div key={fase} className="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
+                        <span className="text-sm text-gray-700">{fase}</span>
+                        <span className="text-sm font-semibold text-amber-700">{pts}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-4">
+                  <h3 className="font-medium text-purple-700 text-sm mb-2">🥇 ¿Cómo ganar?</h3>
+                  <ul className="text-sm text-gray-600 space-y-1.5">
+                    <li>• Gana quien acumule <strong>más puntos</strong> al final del torneo</li>
+                    <li>• Las fases eliminatorias valen más — ¡cualquiera puede remontar!</li>
+                    <li>• El pick del campeón puede ser decisivo en el cierre</li>
+                    <li>• En caso de <strong>empate en puntos</strong>: gana quien se acerque más al marcador exacto de la Final (incluyendo tiempo extra)</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {tab === 'admin' && profile?.es_admin && <AdminPanel showToast={showToast} adminEmail={profile.email} />}
