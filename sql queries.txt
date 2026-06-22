@@ -1,0 +1,88 @@
+|Borrar datos y empezar de 0 con los picks
+|--------------------------------------------------------------------------
+|DELETE FROM public.picks;
+|DELETE FROM public.picks_campeon;
+|DELETE FROM public.posiciones;
+|UPDATE public.partidos SET goles_a = NULL, goles_b = NULL, cerrado = FALSE;
+----------------------------------------------------------------------------
+
+-- Ver todos los picks de un usuario
+SELECT p.partido_id, pt.equipo_a, pt.equipo_b, p.pick, p.puntos
+FROM picks p JOIN partidos pt ON p.partido_id = pt.id
+WHERE p.user_id = 'UUID-DEL-USUARIO' ORDER BY p.partido_id;
+
+-- Ver cuántos picks tiene cada participante
+SELECT pr.nombre, COUNT(p.id) as picks_llenados
+FROM profiles pr LEFT JOIN picks p ON pr.id = p.user_id
+GROUP BY pr.nombre ORDER BY picks_llenados DESC;
+
+-- Ver participantes con picks pendientes en una jornada
+SELECT pr.nombre, pr.email
+FROM profiles pr
+WHERE pr.id NOT IN (
+  SELECT DISTINCT p.user_id FROM picks p
+  JOIN partidos pt ON p.partido_id = pt.id
+  WHERE pt.jornada = 1
+);
+
+
+GESTION DE PARTIDOS
+
+-- Actualizar nombre de equipos en eliminatorias
+UPDATE partidos SET equipo_a = 'México', equipo_b = 'Argentina' WHERE id = 73;
+
+-- Cerrar un partido manualmente
+UPDATE partidos SET cerrado = TRUE WHERE id = 1;
+
+-- Ver todos los partidos con sus resultados
+SELECT id, grupo, equipo_a, equipo_b, jornada, fase, goles_a, goles_b, cerrado
+FROM partidos ORDER BY id;
+
+-- Ver partidos sin resultado cargado
+SELECT id, grupo, equipo_a, equipo_b, fase
+FROM partidos WHERE goles_a IS NULL ORDER BY id;
+
+TABLA DE POSICIONES
+
+-- Recalcular posiciones manualmente
+SELECT user_id, sum(puntos) as total,
+  count(case when puntos > 0 then 1 end) as aciertos,
+  count(*) as total_picks
+FROM picks GROUP BY user_id;
+
+-- Ver tabla completa con nombres
+SELECT pr.nombre, po.puntos_total, po.picks_correctos, po.picks_totales
+FROM posiciones po JOIN profiles pr ON po.user_id = pr.id
+ORDER BY po.puntos_total DESC;
+
+
+ADMINISTRACION DE USUARIOS
+
+-- Ver todos los participantes
+SELECT nombre, email, es_admin FROM profiles ORDER BY nombre;
+
+-- Hacer admin a alguien
+UPDATE profiles SET es_admin = TRUE WHERE email = 'correo@ejemplo.com';
+
+-- Quitar admin
+UPDATE profiles SET es_admin = FALSE WHERE email = 'correo@ejemplo.com';
+
+-- Eliminar un participante y todos sus picks
+DELETE FROM profiles WHERE email = 'correo@ejemplo.com';
+
+
+LIMPIEZA Y RESET
+
+-- Borrar solo picks de una jornada
+DELETE FROM picks WHERE partido_id IN (
+  SELECT id FROM partidos WHERE jornada = 1
+);
+
+-- Reset completo (picks, resultados, posiciones)
+DELETE FROM picks;
+DELETE FROM picks_campeon;
+DELETE FROM posiciones;
+UPDATE partidos SET goles_a = NULL, goles_b = NULL, cerrado = FALSE;
+
+-- Otorgar puntos del campeón
+SELECT calcular_puntos_campeon('México');

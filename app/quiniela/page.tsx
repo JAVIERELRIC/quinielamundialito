@@ -7,7 +7,7 @@ import { GRUPOS } from '@/lib/matches'
 type Pick = 'A' | 'empate' | 'B'
 type PicksMap = Record<number, Pick>
 type ResultadosMap = Record<number, { goles_a: number; goles_b: number }>
-type PosicionRow = { nombre: string; puntos_total: number; picks_correctos: number; picks_totales: number }
+type PosicionRow = { user_id: string; nombre: string; puntos_total: number; picks_correctos: number; picks_totales: number; jornada: number }
 type Match = { id: number; grupo: string; equipo_a: string; equipo_b: string; jornada: number; fase: string; cerrado: boolean }
 type UserProfile = { id: string; nombre: string; email: string; es_admin: boolean }
 
@@ -32,6 +32,9 @@ export default function QuinielaPage() {
   const [predicciones, setPredicciones] = useState<Record<number, {a: number, b: number}>>({})
   const [equipos, setEquipos] = useState<string[]>([])
 
+  // Nuevo estado para controlar qué jornada se visualiza exclusivamente en la pestaña de Tabla/Ranking
+  const [jornadaTablaFiltro, setJornadaTablaFiltro] = useState(2)
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
@@ -39,6 +42,7 @@ export default function QuinielaPage() {
         .from('profiles').select('*').eq('email', session.user.email).single()
       if (!prof) { router.push('/login'); return }
       setProfile(prof)
+      
       // Cargar todos los partidos desde Supabase
       const { data: todosPartidos } = await supabase.from('partidos').select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado').order('id')
       if (todosPartidos) {
@@ -46,6 +50,7 @@ export default function QuinielaPage() {
         const jornadasUnicas: number[] = Array.from(new Set(todosPartidos.map((p: any) => p.jornada as number))).sort((a,b) => a-b)
         setJornadas(jornadasUnicas)
       }
+      
       // Cargar picks
       const { data: picksData } = await supabase
         .from('picks').select('partido_id, pick').eq('user_id', prof.id)
@@ -53,30 +58,49 @@ export default function QuinielaPage() {
       picksData?.forEach((p: any) => { map[p.partido_id] = p.pick })
       setSavedPicks(new Set(picksData?.map((p: any) => p.partido_id) || []))
       setPicks(map)
-      // Cargar resultados y posiciones
-      const { data: partidos } = await supabase
+      
+      // Cargar resultados
+      const { data: partidosResultados } = await supabase
         .from('partidos').select('id, goles_a, goles_b').not('goles_a', 'is', null)
       const resMap: ResultadosMap = {}
-      partidos?.forEach((p: any) => { resMap[p.id] = { goles_a: p.goles_a, goles_b: p.goles_b } })
+      partidosResultados?.forEach((p: any) => { resMap[p.id] = { goles_a: p.goles_a, goles_b: p.goles_b } })
       setResultados(resMap)
-      const { data: pos } = await supabase.from('posiciones').select('user_id, puntos_total, picks_correctos, picks_totales')
-      const { data: profs } = await supabase.from('profiles').select('id, nombre')
-      const posConNombre = pos?.map((p: any) => ({
-        ...p, nombre: profs?.find((pr: any) => pr.id === p.user_id)?.nombre || '?'
-      })) || []
-      setPosiciones(posConNombre)
+      
       // Cargar pick del campeon
       const { data: campeonData } = await supabase.from('picks_campeon').select('equipo').eq('user_id', prof.id).single()
       if (campeonData) { setPickCampeon(campeonData.equipo); setCampeonGuardado(true) }
+      
       // Lista de equipos de grupos para el pick del campeon
       const { data: equiposData } = await supabase.from('partidos').select('equipo_a, equipo_b').eq('fase', 'grupos')
       if (equiposData) {
         const todos = equiposData.flatMap((p: any) => [p.equipo_a, p.equipo_b])
         setEquipos(Array.from(new Set(todos)).sort())
       }
+      
       setLoading(false)
     })
   }, [])
+
+  // Efecto secundario que recarga las posiciones cada vez que el usuario cambia la jornada en la UI
+  useEffect(() => {
+    if (!loading) {
+      actualizarTablaPosiciones(jornadaTablaFiltro)
+    }
+  }, [jornadaTablaFiltro, loading])
+
+  async function actualizarTablaPosiciones(numJornada: number) {
+    const { data: pos } = await supabase
+      .from('posiciones')
+      .select('user_id, jornada, puntos_total, picks_correctos, picks_totales')
+      .eq('jornada', numJornada) // 🔥 Filtro clave para erradicar los duplicados
+
+    const { data: profs } = await supabase.from('profiles').select('id, nombre')
+    const posConNombre = pos?.map((p: any) => ({
+      ...p, nombre: profs?.find((pr: any) => pr.id === p.user_id)?.nombre || '?'
+    })) || []
+    
+    setPosiciones(posConNombre)
+  }
 
   async function signOut() {
     await supabase.auth.signOut()
@@ -89,6 +113,7 @@ export default function QuinielaPage() {
     if (!error) { setPickCampeon(equipo); setCampeonGuardado(true); showToast('🏆 Campeón guardado: ' + equipo) }
     else showToast('❌ Error al guardar')
   }
+
   function setPick(partidoId: number, pick: Pick) {
     setPicks(prev => ({ ...prev, [partidoId]: pick }))
     setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
@@ -109,7 +134,11 @@ export default function QuinielaPage() {
       }))
     const { error } = await supabase.from('picks').upsert(rows, { onConflict: 'user_id,partido_id' })
     setGuardando(false)
-    if (!error) { setSavedPicks(prev => { const s = new Set(prev); rows.forEach((r: any) => s.add(r.partido_id)); return s }); setPendientes(new Set()); showToast(`✅ ${rows.length} picks guardados`) }
+    if (!error) { 
+      setSavedPicks(prev => { const s = new Set(prev); rows.forEach((r: any) => s.add(r.partido_id)); return s }); 
+      setPendientes(new Set()); 
+      showToast(`✅ ${rows.length} picks guardados`) 
+    }
     else showToast('❌ Error al guardar')
   }
 
@@ -138,7 +167,7 @@ export default function QuinielaPage() {
           </div>
         </div>
         <div className="max-w-2xl mx-auto px-4 flex gap-1">
-          {(['picks', 'tabla', 'reglas', ...(profile?.es_admin ? ['admin'] : [])] as const).map(t => (
+          {((['picks', 'tabla', 'reglas', ...(profile?.es_admin ? ['admin'] : [])]) as const).map(t => (
             <button key={t} onClick={() => setTab(t as any)}
               className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === t ? 'border-green-600 text-green-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
               {t === 'picks' ? '✏️ Mis picks' : t === 'tabla' ? '🏆 Tabla' : t === 'reglas' ? '📋 Reglas' : '⚙️ Admin'}
@@ -240,33 +269,6 @@ export default function QuinielaPage() {
                         )
                       })}
                     </div>
-                    {m.fase === 'final' && (
-                      <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                        <p className="text-xs font-medium text-amber-800 mb-2">🏆 Criterio de desempate — Marca el marcador exacto (inc. tiempo extra)</p>
-                        <div className="flex items-center gap-2 justify-center">
-                          <div className="text-center">
-                            <p className="text-xs text-gray-500 mb-1">{m.equipo_a}</p>
-                            <input type="number" min={0} max={20}
-                              disabled={savedPicks.has(m.id) || !!res}
-                              value={predicciones[m.id]?.a ?? ''}
-                              onChange={e => setPredicciones(prev => ({ ...prev, [m.id]: { ...prev[m.id], a: parseInt(e.target.value) || 0 } }))}
-                              className="w-14 text-center border border-amber-300 rounded-lg py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:bg-gray-50" />
-                          </div>
-                          <span className="text-lg font-bold text-gray-400 mt-4">-</span>
-                          <div className="text-center">
-                            <p className="text-xs text-gray-500 mb-1">{m.equipo_b}</p>
-                            <input type="number" min={0} max={20}
-                              disabled={savedPicks.has(m.id) || !!res}
-                              value={predicciones[m.id]?.b ?? ''}
-                              onChange={e => setPredicciones(prev => ({ ...prev, [m.id]: { ...prev[m.id], b: parseInt(e.target.value) || 0 } }))}
-                              className="w-14 text-center border border-amber-300 rounded-lg py-1.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 disabled:opacity-60 disabled:bg-gray-50" />
-                          </div>
-                        </div>
-                        {res && (
-                          <p className="text-xs text-center text-amber-700 mt-2">Resultado real: {res.goles_a}-{res.goles_b}</p>
-                        )}
-                      </div>
-                    )}
                   </div>
                 )
               })}
@@ -281,15 +283,21 @@ export default function QuinielaPage() {
         )}
 
         {tab === 'tabla' && (
-          <TablaDetalle posiciones={posiciones} profile={profile} supabase={supabase} partidos={partidos} jornadas={jornadas} />
+          <TablaDetalle 
+            posiciones={posiciones} 
+            profile={profile} 
+            supabase={supabase} 
+            partidos={partidos} 
+            jornadas={jornadas} 
+            jornadaTablaFiltro={jornadaTablaFiltro}
+            setJornadaTablaFiltro={setJornadaTablaFiltro}
+          />
         )}
-
 
         {tab === 'reglas' && (
           <div className="space-y-4">
             <div className="bg-white rounded-xl border border-gray-200 p-5">
               <h2 className="font-semibold text-gray-900 mb-4 text-base">📋 Reglas de la Quiniela</h2>
-
               <div className="space-y-4">
                 <div>
                   <h3 className="font-medium text-green-700 text-sm mb-2">✏️ Cómo llenar picks</h3>
@@ -297,47 +305,6 @@ export default function QuinielaPage() {
                     <li>• En fase de grupos elige: <strong>Local</strong>, <strong>Empate</strong> o <strong>Visitante</strong></li>
                     <li>• En eliminatorias (16avos en adelante) solo <strong>Local</strong> o <strong>Visitante</strong> — no hay empate</li>
                     <li>• Una vez que presionas <strong>"Guardar picks"</strong>, no puedes cambiarlos</li>
-                    <li>• Los picks también se bloquean cuando el admin carga el resultado</li>
-                  </ul>
-                </div>
-
-                <div className="border-t border-gray-100 pt-4">
-                  <h3 className="font-medium text-blue-700 text-sm mb-2">🏆 Pick del Campeón</h3>
-                  <ul className="text-sm text-gray-600 space-y-1.5">
-                    <li>• Se elige cuando inicia la fase de <strong>16avos de final</strong></li>
-                    <li>• No se puede cambiar una vez guardado</li>
-                    <li>• Si aciertas quién gana el Mundial: <strong>+10 puntos</strong></li>
-                  </ul>
-                </div>
-
-                <div className="border-t border-gray-100 pt-4">
-                  <h3 className="font-medium text-amber-700 text-sm mb-2">⭐ Puntuación por fase</h3>
-                  <div className="space-y-1.5">
-                    {[
-                      ['Fase de grupos', '1 punto por acierto'],
-                      ['16avos de final', '2 puntos por acierto'],
-                      ['Octavos de final', '3 puntos por acierto'],
-                      ['Cuartos de final', '4 puntos por acierto'],
-                      ['Tercer lugar', '4 puntos por acierto'],
-                      ['Semifinales', '6 puntos por acierto'],
-                      ['Final', '8 puntos por acierto'],
-                      ['Pick del Campeón', '10 puntos si aciertas'],
-                    ].map(([fase, pts]) => (
-                      <div key={fase} className="flex justify-between items-center py-1.5 border-b border-gray-50 last:border-0">
-                        <span className="text-sm text-gray-700">{fase}</span>
-                        <span className="text-sm font-semibold text-amber-700">{pts}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-100 pt-4">
-                  <h3 className="font-medium text-purple-700 text-sm mb-2">🥇 ¿Cómo ganar?</h3>
-                  <ul className="text-sm text-gray-600 space-y-1.5">
-                    <li>• Gana quien acumule <strong>más puntos</strong> al final del torneo</li>
-                    <li>• Las fases eliminatorias valen más — ¡cualquiera puede remontar!</li>
-                    <li>• El pick del campeón puede ser decisivo en el cierre</li>
-                    <li>• En caso de <strong>empate en puntos</strong>: gana quien se acerque más al marcador exacto de la Final (incluyendo tiempo extra)</li>
                   </ul>
                 </div>
               </div>
@@ -352,18 +319,33 @@ export default function QuinielaPage() {
 }
 
 type DetalleRow = { partido_id: number; equipo_a: string; equipo_b: string; pick: string; goles_a: number | null; goles_b: number | null; puntos: number; fase: string }
-type PicksGlobales = Record<string, Record<number, string>> // user_id -> partido_id -> pick
+type PicksGlobales = Record<string, Record<number, string>>
 
-function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas }: { posiciones: any[]; profile: any; supabase: any; partidos: any[]; jornadas: number[] }) {
+function TablaDetalle({ 
+  posiciones, 
+  profile, 
+  supabase, 
+  partidos, 
+  jornadas,
+  jornadaTablaFiltro,
+  setJornadaTablaFiltro 
+}: { 
+  posiciones: any[]; 
+  profile: any; 
+  supabase: any; 
+  partidos: any[]; 
+  jornadas: number[];
+  jornadaTablaFiltro: number;
+  setJornadaTablaFiltro: (j: number) => void;
+}) {
   const [vistaMode, setVistaMode] = useState<'ranking' | 'picks'>('ranking')
-  const [jornadaFiltro, setJornadaFiltro] = useState(1)
   const [grupoFiltro, setGrupoFiltro] = useState('todos')
   const [picksGlobales, setPicksGlobales] = useState<PicksGlobales>({})
   const [loadingPicks, setLoadingPicks] = useState(false)
   const [perfiles, setPerfiles] = useState<any[]>([])
 
   const JORNADA_LABELS2: Record<number, string> = {1:'J1',2:'J2',3:'J3',4:'16avos',5:'Octavos',6:'Cuartos',7:'Semis',8:'Final'}
-  const grupos = ['todos', ...Array.from(new Set(partidos.filter(p => p.jornada === jornadaFiltro && p.grupo.length <= 2).map(p => p.grupo))).sort()]
+  const grupos = ['todos', ...Array.from(new Set(partidos.filter(p => p.jornada === jornadaTablaFiltro && p.grupo.length <= 2).map(p => p.grupo))).sort()]
 
   async function cargarPicksGlobales() {
     if (Object.keys(picksGlobales).length > 0) return
@@ -386,7 +368,7 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas }: { p
   }
 
   const partidosFiltrados = partidos.filter(p =>
-    p.jornada === jornadaFiltro && (grupoFiltro === 'todos' || p.grupo === grupoFiltro)
+    p.jornada === jornadaTablaFiltro && (grupoFiltro === 'todos' || p.grupo === grupoFiltro)
   )
 
   const pickLabel = (pick: string, pa: string, pb: string) => {
@@ -435,7 +417,19 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas }: { p
 
   return (
     <div className="space-y-3">
-      {/* Toggle ranking / picks */}
+      {/* Selector de Jornadas Superior para el Tablero General */}
+      <div className="bg-white rounded-xl border border-gray-200 p-3">
+        <p className="text-xs font-semibold text-gray-500 mb-2">Filtrar clasificación por jornada:</p>
+        <div className="flex gap-1 overflow-x-auto pb-1">
+          {jornadas.map(j => (
+            <button key={j} onClick={() => setJornadaTablaFiltro(j)}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${jornadaTablaFiltro === j ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {['J1','J2','J3','16avos','Octavos','Cuartos','Semis','Final'][j-1] || 'J'+j}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex gap-1 bg-white rounded-xl border border-gray-200 p-1">
         <button onClick={() => setVistaMode('ranking')}
           className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'ranking' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
@@ -447,18 +441,14 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas }: { p
         </button>
       </div>
 
-      {/* Vista picks de todos */}
       {vistaMode === 'picks' && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 shrink-0">
-                {jornadas.map(j => (
-                  <button key={j} onClick={() => setJornadaFiltro(j)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-md whitespace-nowrap transition-colors ${jornadaFiltro === j ? 'bg-white shadow text-gray-900' : 'text-gray-500'}`}>
-                    {JORNADA_LABELS2[j] || 'J'+j}
-                  </button>
-                ))}
+                <span className="px-2.5 py-1 text-xs font-bold text-gray-800 bg-white rounded shadow">
+                  {JORNADA_LABELS2[jornadaTablaFiltro] || 'J' + jornadaTablaFiltro}
+                </span>
               </div>
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 overflow-x-auto">
                 {grupos.map(g => (
@@ -513,79 +503,85 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas }: { p
         </div>
       )}
 
-      {/* Vista ranking */}
-      {vistaMode === 'ranking' && <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <h2 className="font-semibold text-gray-900">Clasificación general</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Toca un nombre para ver el detalle</p>
-        </div>
-        {posiciones.length === 0
-          ? <p className="text-center text-gray-400 text-sm py-8">Los resultados aparecen aquí cuando el admin los cargue</p>
-          : [...posiciones].sort((a, b) => b.puntos_total - a.puntos_total).map((p, i) => (
-            <div key={i}>
-              <button onClick={() => verDetalle(p.user_id, p.nombre)}
-                className={`w-full flex items-center gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${p.nombre === profile?.nombre ? 'bg-blue-50' : ''}`}>
-                <span className="text-sm font-medium text-gray-400 w-5">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
-                <div className="flex-1 text-left">
-                  <p className="text-sm font-medium text-gray-900">{p.nombre} {p.nombre === profile?.nombre && <span className="text-xs text-blue-500">(tú)</span>}</p>
-                  <p className="text-xs text-gray-400">{p.picks_correctos} aciertos de {p.picks_totales}</p>
-                </div>
-                <span className="text-base font-semibold text-blue-700">{p.puntos_total} pts</span>
-                <span className="text-gray-400 text-xs">{vistaDetalle === p.nombre ? '▲' : '▼'}</span>
-              </button>
-              {vistaDetalle === p.nombre && (
-                <div className="bg-gray-50 border-b border-gray-100 px-4 py-3">
-                  {loadingDetalle ? (
-                    <p className="text-xs text-gray-400 text-center py-2">Cargando...</p>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
-                        <thead>
-                          <tr className="text-gray-400 border-b border-gray-200">
-                            <th className="text-left pb-2 font-medium">Partido</th>
-                            <th className="text-center pb-2 font-medium">Resultado</th>
-                            <th className="text-center pb-2 font-medium">Pick</th>
-                            <th className="text-center pb-2 font-medium">Pts</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {detalle.map((d, idx) => {
-                            const tieneResultado = d.goles_a !== null && d.goles_b !== null
-                            const pickLabel = d.pick === 'A' ? d.equipo_a.split(' ')[0] : d.pick === 'B' ? d.equipo_b.split(' ')[0] : 'Empate'
-                            return (
-                              <tr key={idx} className={`border-b border-gray-100 last:border-0 ${d.puntos > 0 ? 'bg-green-50' : tieneResultado ? 'bg-red-50' : ''}`}>
-                                <td className="py-1.5 pr-2">
-                                  <span className="text-gray-500">{faseLabel[d.fase] || d.fase} #{d.partido_id}</span><br/>
-                                  <span className="font-medium text-gray-800">{d.equipo_a} vs {d.equipo_b}</span>
-                                </td>
-                                <td className="py-1.5 text-center text-gray-600">
-                                  {tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}
-                                </td>
-                                <td className="py-1.5 text-center font-medium text-gray-800">{pickLabel}</td>
-                                <td className="py-1.5 text-center font-semibold">
-                                  {tieneResultado ? (
-                                    <span className={d.puntos > 0 ? 'text-green-700' : 'text-red-500'}>
-                                      {d.puntos > 0 ? `+${d.puntos}` : '0'}
-                                    </span>
-                                  ) : '—'}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+      {vistaMode === 'ranking' && (
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+            <div>
+              <h2 className="font-semibold text-gray-900 text-sm">Clasificación — {JORNADA_LABELS2[jornadaTablaFiltro] || 'J'+jornadaTablaFiltro}</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Toca un nombre para ver el detalle</p>
             </div>
-          ))
-        }
-      </div>}
+            <span className="text-xs font-bold px-2 py-1 bg-blue-100 text-blue-800 rounded-md">Puntos por Jornada</span>
+          </div>
+          {posiciones.length === 0 ? (
+            <p className="text-center text-gray-400 text-sm py-8">No hay registros calculados para esta jornada aún.</p>
+          ) : (
+            [...posiciones].sort((a, b) => b.puntos_total - a.puntos_total).map((p, i) => (
+              <div key={i}>
+                <button onClick={() => verDetalle(p.user_id, p.nombre)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition-colors ${p.nombre === profile?.nombre ? 'bg-blue-50' : ''}`}>
+                  <span className="text-sm font-medium text-gray-400 w-5">{i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : i + 1}</span>
+                  <div className="flex-1 text-left">
+                    <p className="text-sm font-medium text-gray-900">{p.nombre} {p.nombre === profile?.nombre && <span className="text-xs text-blue-500">(tú)</span>}</p>
+                    <p className="text-xs text-gray-400">{p.picks_correctos} aciertos en esta jornada</p>
+                  </div>
+                  <span className="text-base font-semibold text-blue-700">{p.puntos_total} pts</span>
+                  <span className="text-gray-400 text-xs">{vistaDetalle === p.nombre ? '▲' : '▼'}</span>
+                </button>
+                {vistaDetalle === p.nombre && (
+                  <div className="bg-gray-50 border-b border-gray-100 px-4 py-3">
+                    {loadingDetalle ? (
+                      <p className="text-xs text-gray-400 text-center py-2">Cargando...</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-400 border-b border-gray-200">
+                              <th className="text-left pb-2 font-medium">Partido</th>
+                              <th className="text-center pb-2 font-medium">Resultado</th>
+                              <th className="text-center pb-2 font-medium">Pick</th>
+                              <th className="text-center pb-2 font-medium">Pts</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {detalle
+                              .filter((d) => partidos.find((m) => m.id === d.partido_id)?.jornada === jornadaTablaFiltro)
+                              .map((d, idx) => {
+                                const tieneResultado = d.goles_a !== null && d.goles_b !== null
+                                const labelPick = d.pick === 'A' ? d.equipo_a.split(' ')[0] : d.pick === 'B' ? d.equipo_b.split(' ')[0] : 'Empate'
+                                return (
+                                  <tr key={idx} className={`border-b border-gray-100 last:border-0 ${d.puntos > 0 ? 'bg-green-50' : tieneResultado ? 'bg-red-50' : ''}`}>
+                                    <td className="py-1.5 pr-2">
+                                      <span className="text-gray-500">{faseLabel[d.fase] || d.fase} #{d.partido_id}</span><br/>
+                                      <span className="font-medium text-gray-800">{d.equipo_a} vs {d.equipo_b}</span>
+                                    </td>
+                                    <td className="py-1.5 text-center text-gray-600">
+                                      {tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}
+                                    </td>
+                                    <td className="py-1.5 text-center font-medium text-gray-800">{labelPick}</td>
+                                    <td className="py-1.5 text-center font-semibold">
+                                      {tieneResultado ? (
+                                        <span className={d.puntos > 0 ? 'text-green-700' : 'text-red-500'}>
+                                          {d.puntos > 0 ? `+${d.puntos}` : '0'}
+                                        </span>
+                                      ) : '—'}
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   )
 }
-
 
 function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void; adminEmail: string }) {
   const [invEmail, setInvEmail] = useState('')
