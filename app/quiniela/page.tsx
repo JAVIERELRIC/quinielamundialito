@@ -210,6 +210,62 @@ export default function QuinielaPage() {
               </div>
               {pendientes.size > 0 && <p className="text-xs text-amber-600 mt-1.5">⚠️ Tienes {pendientes.size} picks sin guardar o modificados</p>}
             </div>
+			
+		{/* Widget de Calendario del Día (Hoy y Mañana) */}
+{partidosDeHoy.length > 0 && (
+  <div className="bg-gradient-to-br from-gray-900 to-blue-950 text-white rounded-xl p-4 mb-4 shadow-lg border border-white/5">
+    <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+      <div className="flex items-center gap-2">
+        <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-200">Próximos Partidos</h3>
+      </div>
+      <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-medium">Agenda</span>
+    </div>
+
+    <div className="space-y-4">
+      {partidosDeHoy.map(m => {
+        const res = resultados[m.id]
+        
+        // Formatear el día y la hora de manera amigable para el usuario
+        const fechaPartido = new Date(m.fecha_hora)
+        const esHoy = fechaPartido.toDateString() === new Date().toDateString()
+        
+        const horaFormateada = fechaPartido.toLocaleTimeString('es-MX', {
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: true
+        })
+
+        return (
+          <div key={m.id} className="flex flex-col gap-1 bg-white/5 rounded-lg p-2.5 transition-all hover:bg-white/10">
+            {/* Cabecera del partido: Día, hora y si está cerrado */}
+            <div className="flex justify-between items-center text-[11px] text-gray-400 font-medium px-0.5">
+              <span>{esHoy ? '🔥 Hoy' : '📅 Mañana'} — {horaFormateada}</span>
+              <span className="text-[10px] opacity-75">{m.fase === 'grupos' ? `Grupo ${m.grupo}` : m.fase}</span>
+            </div>
+
+            {/* Marcador / Equipos */}
+            <div className="flex items-center justify-between text-sm mt-1">
+              <div className="flex-1 text-left font-semibold text-gray-100 truncate">{m.equipo_a}</div>
+              
+              <div className="px-3 py-0.5 bg-white/10 rounded-md text-center min-w-[65px] mx-2">
+                {res ? (
+                  <span className="font-bold text-green-400 font-mono text-xs">{res.goles_a} - {res.goles_b}</span>
+                ) : m.cerrado ? (
+                  <span className="text-[10px] text-amber-400 font-medium uppercase tracking-tight">Cerrado</span>
+                ) : (
+                  <span className="text-[11px] text-gray-300 font-medium">Por jugar</span>
+                )}
+              </div>
+
+              <div className="flex-1 text-right font-semibold text-gray-100 truncate">{m.equipo_b}</div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  </div>
+)}	
 
             <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
               <div className="flex gap-1 bg-white rounded-lg border border-gray-200 p-1 shrink-0">
