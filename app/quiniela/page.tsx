@@ -53,11 +53,19 @@ export default function QuinielaPage() {
       
       // Cargar picks
       const { data: picksData } = await supabase
-        .from('picks').select('partido_id, pick').eq('user_id', prof.id)
+        .from('picks').select('partido_id, pick, goles_a_pred, goles_b_pred').eq('user_id', prof.id)
       const map: PicksMap = {}
-      picksData?.forEach((p: any) => { map[p.partido_id] = p.pick })
+      const predMap: Record<number, {a: number, b: number}> = {}
+      
+      picksData?.forEach((p: any) => { 
+        map[p.partido_id] = p.pick 
+        if (p.goles_a_pred !== null && p.goles_b_pred !== null) {
+          predMap[p.partido_id] = { a: p.goles_a_pred, b: p.goles_b_pred }
+        }
+      })
       setSavedPicks(new Set(picksData?.map((p: any) => p.partido_id) || []))
       setPicks(map)
+      setPredicciones(predMap)
       
       // Cargar resultados
       const { data: partidosResultados } = await supabase
@@ -92,7 +100,7 @@ export default function QuinielaPage() {
     const { data: pos } = await supabase
       .from('posiciones')
       .select('user_id, jornada, puntos_total, picks_correctos, picks_totales')
-      .eq('jornada', numJornada) // 🔥 Filtro clave para erradicar los duplicados
+      .eq('jornada', numJornada) // Filtro clave para erradicar los duplicados
 
     const { data: profs } = await supabase.from('profiles').select('id, nombre')
     const posConNombre = pos?.map((p: any) => ({
@@ -116,6 +124,17 @@ export default function QuinielaPage() {
 
   function setPick(partidoId: number, pick: Pick) {
     setPicks(prev => ({ ...prev, [partidoId]: pick }))
+    setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
+  }
+
+  function setGolesPred(partidoId: number, equipo: 'a' | 'b', valor: number) {
+    setPredicciones(prev => ({
+      ...prev,
+      [partidoId]: {
+        ...prev[partidoId],
+        [equipo]: valor
+      }
+    }))
     setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
   }
 
@@ -189,7 +208,7 @@ export default function QuinielaPage() {
               <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
                 <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
               </div>
-              {pendientes.size > 0 && <p className="text-xs text-amber-600 mt-1.5">⚠️ Tienes {pendientes.size} picks sin guardar</p>}
+              {pendientes.size > 0 && <p className="text-xs text-amber-600 mt-1.5">⚠️ Tienes {pendientes.size} picks sin guardar o modificados</p>}
             </div>
 
             <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
@@ -262,13 +281,49 @@ export default function QuinielaPage() {
                         const sel = miPick === op
                         const esRes = resultado === op
                         return (
-                          <button key={op} disabled={!!res || savedPicks.has(m.id)} onClick={() => setPick(m.id, op)}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all ${res && esRes ? 'bg-green-100 border-green-400 text-green-800' : sel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${(res || savedPicks.has(m.id)) ? 'cursor-default opacity-80' : ''}`}>
+                          <button key={op} disabled={!!res || m.cerrado} onClick={() => setPick(m.id, op)}
+                            className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all ${res && esRes ? 'bg-green-100 border-green-400 text-green-800' : sel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${(res || m.cerrado) ? 'cursor-default opacity-80' : ''}`}>
                             {label}
                           </button>
                         )
                       })}
                     </div>
+
+                    {/* Inputs de marcador exacto condicionado a partir de 16avos (J4) */}
+                    {m.jornada >= 4 && (
+                      <div className="mt-3 bg-gray-50 border border-gray-100 rounded-lg p-2.5">
+                        <p className="text-[11px] font-medium text-gray-500 mb-1.5 text-center">
+                          🎯 Opcional: ¡Acierta el marcador exacto para obtener +1 punto extra!
+                        </p>
+                        <div className="flex items-center gap-2 justify-center">
+                          <div className="text-center">
+                            <input 
+                              type="number" 
+                              min={0} 
+                              max={20}
+                              placeholder="0"
+                              disabled={m.cerrado || !!res}
+                              value={predicciones[m.id]?.a ?? ''}
+                              onChange={e => setGolesPred(m.id, 'a', parseInt(e.target.value) >= 0 ? parseInt(e.target.value) : 0)}
+                              className="w-12 text-center border border-gray-300 rounded-md py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60 disabled:bg-gray-100" 
+                            />
+                          </div>
+                          <span className="text-xs font-bold text-gray-400">-</span>
+                          <div className="text-center">
+                            <input 
+                              type="number" 
+                              min={0} 
+                              max={20}
+                              placeholder="0"
+                              disabled={m.cerrado || !!res}
+                              value={predicciones[m.id]?.b ?? ''}
+                              onChange={e => setGolesPred(m.id, 'b', parseInt(e.target.value) >= 0 ? parseInt(e.target.value) : 0)}
+                              className="w-12 text-center border border-gray-300 rounded-md py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60 disabled:bg-gray-100" 
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )
               })}
@@ -304,7 +359,8 @@ export default function QuinielaPage() {
                   <ul className="text-sm text-gray-600 space-y-1.5">
                     <li>• En fase de grupos elige: <strong>Local</strong>, <strong>Empate</strong> o <strong>Visitante</strong></li>
                     <li>• En eliminatorias (16avos en adelante) solo <strong>Local</strong> o <strong>Visitante</strong> — no hay empate</li>
-                    <li>• Una vez que presionas <strong>"Guardar picks"</strong>, no puedes cambiarlos</li>
+                    <li>• Los cambios están permitidos de forma libre antes de que inicie cada encuentro.</li>
+                    <li>• En fase eliminatoria, acertar el marcador exacto añade un <strong>+1 punto extra</strong> a tu marcador de la jornada.</li>
                   </ul>
                 </div>
               </div>
@@ -651,4 +707,4 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
       </div>
     </div>
   )
-}
+}x|
