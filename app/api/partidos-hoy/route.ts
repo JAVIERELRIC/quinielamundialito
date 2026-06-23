@@ -8,20 +8,20 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    // 🕐 CAMBIO CLAVE: "Ahorita" es nuestro punto de partida exacto
-    const ahora = new Date()
+    // 1. Obtenemos el momento exacto actual en la zona horaria de México
+    const ahoraEnMexico = obtenerFechaLocalMexico();
 
-    // Calculamos el final de MAÑANA (23:59:59)
-    const finManana = new Date()
-    finManana.setDate(finManana.getDate() + 1)
-    finManana.setHours(23, 59, 59, 999)
+    // 2. Calculamos las 23:59:59.999 del día de MAÑANA en tiempo de México
+    const finMananaEnMexico = obtenerFechaLocalMexico();
+    finMananaEnMexico.setDate(finMananaEnMexico.getDate() + 1);
+    finMananaEnMexico.setHours(23, 59, 59, 999);
 
-    // Filtramos para que SOLO traiga partidos de "ahorita" en adelante
+    // 3. Consultamos pasándole los strings ISO exactos que Supabase entiende
     const { data: partidos, error } = await supabase
       .from('partidos')
       .select('*')
-      .gte('fecha_hora', ahora.toISOString()) // <-- Solo el futuro inmediato
-      .lte('fecha_hora', finManana.toISOString())
+      .gte('fecha_hora', ahoraEnMexico.toISOString())
+      .lte('fecha_hora', finMananaEnMexico.toISOString())
       .order('fecha_hora', { ascending: true })
 
     if (error) throw error
@@ -30,4 +30,23 @@ export async function GET() {
   } catch (error: any) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
+}
+
+// 🇲🇽 Función auxiliar para calcular el tiempo real de México sin importar el servidor
+function obtenerFechaLocalMexico(): Date {
+  const ahora = new Date();
+  // Formateamos la hora actual forzando la zona horaria de México
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Monterrey',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  });
+  
+  const parts = formatter.formatToParts(ahora);
+  const getPart = (type: string) => parts.find(p => p.type === type)!.value;
+  
+  // Construimos una fecha con el desfase real de México
+  return new Date(
+    `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`
+  );
 }
