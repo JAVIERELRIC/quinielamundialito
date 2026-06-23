@@ -8,7 +8,7 @@ type Pick = 'A' | 'empate' | 'B'
 type PicksMap = Record<number, Pick>
 type ResultadosMap = Record<number, { goles_a: number; goles_b: number }>
 type PosicionRow = { user_id: string; nombre: string; puntos_total: number; picks_correctos: number; picks_totales: number; jornada: number }
-type Match = { id: number; grupo: string; equipo_a: string; equipo_b: string; jornada: number; fase: string; cerrado: boolean }
+type Match = { id: number; grupo: string; equipo_a: string; equipo_b: string; jornada: number; fase: string; cerrado: boolean; fecha_hora?: string }
 type UserProfile = { id: string; nombre: string; email: string; es_admin: boolean }
 
 export default function QuinielaPage() {
@@ -31,6 +31,7 @@ export default function QuinielaPage() {
   const [campeonGuardado, setCampeonGuardado] = useState(false)
   const [predicciones, setPredicciones] = useState<Record<number, {a: number, b: number}>>({})
   const [equipos, setEquipos] = useState<string[]>([])
+  const [partidosDeHoy, setPartidosDeHoy] = useState<Match[]>([])
 
   // Nuevo estado para controlar qué jornada se visualiza exclusivamente en la pestaña de Tabla/Ranking
   const [jornadaTablaFiltro, setJornadaTablaFiltro] = useState(2)
@@ -44,7 +45,7 @@ export default function QuinielaPage() {
       setProfile(prof)
       
       // Cargar todos los partidos desde Supabase
-      const { data: todosPartidos } = await supabase.from('partidos').select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado').order('id')
+      const { data: todosPartidos } = await supabase.from('partidos').select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado, fecha_hora').order('id')
       if (todosPartidos) {
         setPartidos(todosPartidos)
         const jornadasUnicas: number[] = Array.from(new Set(todosPartidos.map((p: any) => p.jornada as number))).sort((a,b) => a-b)
@@ -84,6 +85,14 @@ export default function QuinielaPage() {
         const todos = equiposData.flatMap((p: any) => [p.equipo_a, p.equipo_b])
         setEquipos(Array.from(new Set(todos)).sort())
       }
+
+      // Cargar la agenda de partidos de Hoy y Mañana desde nuestra nueva API
+      fetch('/api/partidos-hoy')
+        .then(res => res.json())
+        .then(data => {
+          if (data.ok) setPartidosDeHoy(data.partidos)
+        })
+        .catch(err => console.error('Error cargando partidos de hoy:', err))
       
       setLoading(false)
     })
@@ -210,62 +219,58 @@ export default function QuinielaPage() {
               </div>
               {pendientes.size > 0 && <p className="text-xs text-amber-600 mt-1.5">⚠️ Tienes {pendientes.size} picks sin guardar o modificados</p>}
             </div>
-			
-		{/* Widget de Calendario del Día (Hoy y Mañana) */}
-{partidosDeHoy.length > 0 && (
-  <div className="bg-gradient-to-br from-gray-900 to-blue-950 text-white rounded-xl p-4 mb-4 shadow-lg border border-white/5">
-    <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
-      <div className="flex items-center gap-2">
-        <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-200">Próximos Partidos</h3>
-      </div>
-      <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-medium">Agenda</span>
-    </div>
 
-    <div className="space-y-4">
-      {partidosDeHoy.map(m => {
-        const res = resultados[m.id]
-        
-        // Formatear el día y la hora de manera amigable para el usuario
-        const fechaPartido = new Date(m.fecha_hora)
-        const esHoy = fechaPartido.toDateString() === new Date().toDateString()
-        
-        const horaFormateada = fechaPartido.toLocaleTimeString('es-MX', {
-          hour: '2-digit',
-          minute: '2-digit',
-          hour12: true
-        })
+            {/* Widget Dinámico de Calendario (Hoy y Mañana) */}
+            {partidosDeHoy.length > 0 && (
+              <div className="bg-gradient-to-br from-gray-900 to-blue-950 text-white rounded-xl p-4 mb-4 shadow-lg border border-white/5">
+                <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></span>
+                    <h3 className="text-xs font-bold uppercase tracking-wider text-gray-200">Próximos Partidos</h3>
+                  </div>
+                  <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full font-medium">Agenda</span>
+                </div>
 
-        return (
-          <div key={m.id} className="flex flex-col gap-1 bg-white/5 rounded-lg p-2.5 transition-all hover:bg-white/10">
-            {/* Cabecera del partido: Día, hora y si está cerrado */}
-            <div className="flex justify-between items-center text-[11px] text-gray-400 font-medium px-0.5">
-              <span>{esHoy ? '🔥 Hoy' : '📅 Mañana'} — {horaFormateada}</span>
-              <span className="text-[10px] opacity-75">{m.fase === 'grupos' ? `Grupo ${m.grupo}` : m.fase}</span>
-            </div>
+                <div className="space-y-4">
+                  {partidosDeHoy.map(m => {
+                    const res = resultados[m.id]
+                    const fechaPartido = m.fecha_hora ? new Date(m.fecha_hora) : new Date()
+                    const esHoy = fechaPartido.toDateString() === new Date().toDateString()
+                    
+                    const horaFormateada = fechaPartido.toLocaleTimeString('es-MX', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: true
+                    })
 
-            {/* Marcador / Equipos */}
-            <div className="flex items-center justify-between text-sm mt-1">
-              <div className="flex-1 text-left font-semibold text-gray-100 truncate">{m.equipo_a}</div>
-              
-              <div className="px-3 py-0.5 bg-white/10 rounded-md text-center min-w-[65px] mx-2">
-                {res ? (
-                  <span className="font-bold text-green-400 font-mono text-xs">{res.goles_a} - {res.goles_b}</span>
-                ) : m.cerrado ? (
-                  <span className="text-[10px] text-amber-400 font-medium uppercase tracking-tight">Cerrado</span>
-                ) : (
-                  <span className="text-[11px] text-gray-300 font-medium">Por jugar</span>
-                )}
+                    return (
+                      <div key={m.id} className="flex flex-col gap-1 bg-white/5 rounded-lg p-2.5 transition-all hover:bg-white/10">
+                        <div className="flex justify-between items-center text-[11px] text-gray-400 font-medium px-0.5">
+                          <span>{esHoy ? '🔥 Hoy' : '📅 Mañana'} — {horaFormateada}</span>
+                          <span className="text-[10px] opacity-75">{m.fase === 'grupos' ? `Grupo ${m.grupo}` : m.fase}</span>
+                        </div>
+
+                        <div className="flex items-center justify-between text-sm mt-1">
+                          <div className="flex-1 text-left font-semibold text-gray-100 truncate">{m.equipo_a}</div>
+                          
+                          <div className="px-3 py-0.5 bg-white/10 rounded-md text-center min-w-[65px] mx-2">
+                            {res ? (
+                              <span className="font-bold text-green-400 font-mono text-xs">{res.goles_a} - {res.goles_b}</span>
+                            ) : m.cerrado ? (
+                              <span className="text-[10px] text-amber-400 font-medium uppercase tracking-tight">Cerrado</span>
+                            ) : (
+                              <span className="text-[11px] text-gray-300 font-medium">Por jugar</span>
+                            )}
+                          </div>
+
+                          <div className="flex-1 text-right font-semibold text-gray-100 truncate">{m.equipo_b}</div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-
-              <div className="flex-1 text-right font-semibold text-gray-100 truncate">{m.equipo_b}</div>
-            </div>
-          </div>
-        )
-      })}
-    </div>
-  </div>
-)}	
+            )}
 
             <div className="flex gap-2 mb-3 overflow-x-auto pb-1">
               <div className="flex gap-1 bg-white rounded-lg border border-gray-200 p-1 shrink-0">
