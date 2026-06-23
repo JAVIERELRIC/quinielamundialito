@@ -54,7 +54,7 @@ export default function QuinielaPage() {
       
       // Cargar picks
       const { data: picksData } = await supabase
-        .from('picks').select('partido_id, pick, goles_a_pred, goles_b_pred').eq('user_id', prof.id)
+        .from('vista_picks_puntos').select('partido_id, pick, goles_a_pred, goles_b_pred').eq('user_id', prof.id)
       const map: PicksMap = {}
       const predMap: Record<number, {a: number, b: number}> = {}
       
