@@ -10,7 +10,7 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    -- Llamamos directamente a la función que creamos en Postgres
+    // 🚀 Llamamos directamente a la función que creamos en Postgres
     const { data: partidos, error } = await supabase
       .rpc('obtener_partidos_hoy_manana')
 
