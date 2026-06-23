@@ -65,13 +65,6 @@ export async function GET() {
 
     return NextResponse.json({ ok: true, partidos })
   } catch (error: any) {
-    return new NextResponse(JSON.stringify({ ok: true, partidos }), {
-  status: 200,
-  headers: {
-    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
-    'Pragma': 'no-cache',
-    'Expires': '0',
-  },
-});
+    return NextResponse.json({ ok: false, error: error.message }, { status: 500 })
   }
 }
