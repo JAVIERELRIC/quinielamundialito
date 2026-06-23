@@ -100,7 +100,7 @@ export default function QuinielaPage() {
     const { data: pos } = await supabase
       .from('posiciones')
       .select('user_id, jornada, puntos_total, picks_correctos, picks_totales')
-      .eq('jornada', numJornada) // Filtro clave para erradicar los duplicados
+      .eq('jornada', numJornada)
 
     const { data: profs } = await supabase.from('profiles').select('id, nombre')
     const posConNombre = pos?.map((p: any) => ({
@@ -707,4 +707,4 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
       </div>
     </div>
   )
-}x|
+}
