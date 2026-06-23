@@ -8,20 +8,19 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    // Calculamos el inicio de HOY (00:00:00) en hora local
-    const inicioHoy = new Date()
-    inicioHoy.setHours(0, 0, 0, 0)
+    // 🕐 CAMBIO CLAVE: "Ahorita" es nuestro punto de partida exacto
+    const ahora = new Date()
 
     // Calculamos el final de MAÑANA (23:59:59)
     const finManana = new Date()
     finManana.setDate(finManana.getDate() + 1)
     finManana.setHours(23, 59, 59, 999)
 
-    // Consultamos la tabla usando tu columna 'fecha_hora'
+    // Filtramos para que SOLO traiga partidos de "ahorita" en adelante
     const { data: partidos, error } = await supabase
       .from('partidos')
       .select('*')
-      .gte('fecha_hora', inicioHoy.toISOString())
+      .gte('fecha_hora', ahora.toISOString()) // <-- Solo el futuro inmediato
       .lte('fecha_hora', finManana.toISOString())
       .order('fecha_hora', { ascending: true })
 
