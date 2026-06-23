@@ -8,20 +8,22 @@ const supabase = createClient(
 
 export async function GET() {
   try {
-    // 1. Obtenemos el momento exacto actual en la zona horaria de México
-    const ahoraEnMexico = obtenerFechaLocalMexico();
+    // 1. Calculamos el inicio de HOY (00:00:00) en hora local de México
+    const inicioHoy = obtenerFechaLocalMexico();
+    inicioHoy.setHours(0, 0, 0, 0);
 
-    // 2. Calculamos las 23:59:59.999 del día de MAÑANA en tiempo de México
-    const finMananaEnMexico = obtenerFechaLocalMexico();
-    finMananaEnMexico.setDate(finMananaEnMexico.getDate() + 1);
-    finMananaEnMexico.setHours(23, 59, 59, 999);
+    // 2. Calculamos el final de MAÑANA (23:59:59) en hora local de México
+    const finManana = obtenerFechaLocalMexico();
+    finManana.setDate(finManana.getDate() + 1);
+    finManana.setHours(23, 59, 59, 999);
 
-    // 3. Consultamos pasándole los strings ISO exactos que Supabase entiende
+    // 3. Consultamos aplicando los candados correspondientes
     const { data: partidos, error } = await supabase
       .from('partidos')
       .select('*')
-      .gte('fecha_hora', ahoraEnMexico.toISOString())
-      .lte('fecha_hora', finMananaEnMexico.toISOString())
+      .gte('fecha_hora', inicioHoy.toISOString())
+      .lte('fecha_hora', finManana.toISOString())
+      .is('goles_a', null) // 🔥 FILTRO CLAVE: Solo trae partidos que NO tengan goles cargados
       .order('fecha_hora', { ascending: true })
 
     if (error) throw error
@@ -32,10 +34,9 @@ export async function GET() {
   }
 }
 
-// 🇲🇽 Función auxiliar para calcular el tiempo real de México sin importar el servidor
+// Función para forzar la hora real de México (Monterrey/CDMX)
 function obtenerFechaLocalMexico(): Date {
   const ahora = new Date();
-  // Formateamos la hora actual forzando la zona horaria de México
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Monterrey',
     year: 'numeric', month: '2-digit', day: '2-digit',
@@ -45,7 +46,6 @@ function obtenerFechaLocalMexico(): Date {
   const parts = formatter.formatToParts(ahora);
   const getPart = (type: string) => parts.find(p => p.type === type)!.value;
   
-  // Construimos una fecha con el desfase real de México
   return new Date(
     `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}:${getPart('second')}`
   );
