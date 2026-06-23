@@ -1,5 +1,4 @@
-import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+
 
 export const dynamic = 'force-dynamic' // 🔥 Desactiva el caché por completo en esta ruta
 
