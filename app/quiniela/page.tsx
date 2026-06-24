@@ -282,10 +282,14 @@ export default function QuinielaPage() {
                 <div className="space-y-4">
                   {partidosDeHoy.map(m => {
                     const res = resultados[m.id]
-                    const fechaPartido = m.fecha_hora ? new Date(m.fecha_hora) : new Date()
-                    const esHoy = fechaPartido.toDateString() === new Date().toDateString()
-                    
-                    const horaFormateada = fechaPartido.toLocaleTimeString('es-MX', {
+                    // 🔥 CAMBIO AQUÍ: Forzamos el huso horario de Monterrey para ignorar el desfase UTC del servidor
+                    const fechaPartidoUTC = m.fecha_hora ? new Date(m.fecha_hora) : new Date()
+                    const hoyLocal = new Date().toLocaleDateString('es-MX', { timeZone: 'America/Monterrey' })
+                   const partidoLocal = fechaPartidoUTC.toLocaleDateString('es-MX', { timeZone: 'America/Monterrey' })
+                  const esHoy = hoyLocal === partidoLocal
+    
+    // Formateamos la hora de forma limpia usando también la referencia UTC corregida por el navegador
+    const horaFormateada = fechaPartidoUTC.toLocaleTimeString('es-MX', {
                       hour: '2-digit',
                       minute: '2-digit',
                       hour12: true
