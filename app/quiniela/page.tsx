@@ -546,7 +546,7 @@ function TablaDetalle({
     setLoadingPicks(false)
   }
 
-  async function verDetalle(userId: string, nombre: string, jornada: number) {
+  async function verDetalle(userId: string, nombre: string,  jornada: number) {
     if (vistaDetalle === nombre) { setVistaDetalle(null); return }
     setLoadingDetalle(true)
     setVistaDetalle(nombre)
@@ -556,15 +556,21 @@ function TablaDetalle({
       .select('partido_id, mi_ganador_pred, goles_a_pred, goles_b_pred, goles_a_reales, goles_b_reales, puntos_fase, acerto_ganador, acerto_marcador_exacto, acerto_tanda_penales, jornada')
       .eq('user_id', userId)
 
-    // Filtramos usando la jornada seleccionada en la vista de la tabla
+    // Filtramos usando el argumento de la jornada exacta
     const mappedRows = (picksData || [])
-      .filter((p: any) => p.jornada === jornadaTablaFiltro)
+      .filter((p: any) => p.jornada === jornada)
       .map((p: any) => {
         const partido = partidos.find((pt: any) => pt.id === p.partido_id)
         let puntosGanados = 0
-        if (p.acerto_ganador === 1) puntosGanados += p.puntos_fase 
-        if (p.acerto_marcador_exacto === 1) puntosGanados += 1 
-        if (p.acerto_tanda_penales === 1) puntosGanados += 1 
+
+        // 🔒 Candado de seguridad: Solo sumamos puntos si el partido YA tiene un resultado real cargado
+        const partidoYaSeJugo = p.goles_a_reales !== null && p.goles_b_reales !== null
+
+        if (partidoYaSeJugo) {
+          if (p.acerto_ganador === 1) puntosGanados += p.puntos_fase 
+          if (p.acerto_marcador_exacto === 1) puntosGanados += 1 
+          if (p.acerto_tanda_penales === 1) puntosGanados += 1 
+        }
 
         return {
           partido_id: p.partido_id,
@@ -678,69 +684,4 @@ function TablaDetalle({
                                <td className="py-2 px-3 text-left font-medium">{d.equipo_a} vs {d.equipo_b}</td>
                                <td className="py-2 px-3 text-center font-mono font-semibold">{tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}</td>
                                <td className="py-2 px-3 text-center font-bold">
-                                 <span className={d.puntos > 0 ? 'text-green-700' : 'text-gray-400'}>+{d.puntos}</span>
-                               </td>
-                             </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void; adminEmail: string }) {
-  const [invEmail, setInvEmail] = useState('')
-  const [invNombre, setInvNombre] = useState('')
-  const [partidoId, setPartidoId] = useState('')
-  const [golesA, setGolesA] = useState('')
-  const [golesB, setGolesB] = useState('')
-
-  async function invitar(e: React.FormEvent) {
-    e.preventDefault()
-    const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: invEmail, nombre: invNombre }) })
-    const data = await res.json()
-    if (data.ok) { showToast('✅ Invitación enviada'); setInvEmail(''); setInvNombre('') }
-    else showToast('❌ ' + data.error)
-  }
-
-  async function cargarResultado(e: React.FormEvent) {
-    e.preventDefault()
-    const res = await fetch('/api/results', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partido_id: parseInt(partidoId), goles_a: parseInt(golesA), goles_b: parseInt(golesB), admin_email: adminEmail }) })
-    const data = await res.json()
-    if (data.ok) { showToast('✅ Resultado cargado'); setPartidoId(''); setGolesA(''); setGolesB('') }
-    else showToast('❌ ' + data.error)
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl border p-4">
-        <h3 className="font-medium mb-3">Invitar participante</h3>
-        <form onSubmit={invitar} className="space-y-2">
-          <input required value={invNombre} onChange={e => setInvNombre(e.target.value)} placeholder="Nombre" className="w-full border rounded-lg px-3 py-2 text-sm" />
-          <input required type="email" value={invEmail} onChange={e => setInvEmail(e.target.value)} placeholder="Email" className="w-full border rounded-lg px-3 py-2 text-sm" />
-          <button type="submit" className="w-full py-2 bg-green-600 text-white rounded-lg text-sm font-medium">Enviar invitación</button>
-        </form>
-      </div>
-      <div className="bg-white rounded-xl border p-4">
-        <h3 className="font-medium mb-3">Cargar resultado</h3>
-        <form onSubmit={cargarResultado} className="space-y-2">
-          <input required value={partidoId} onChange={e => setPartidoId(e.target.value)} placeholder="ID del partido" type="number" className="w-full border rounded-lg px-3 py-2 text-sm" />
-          <div className="grid grid-cols-2 gap-2">
-            <input required value={golesA} onChange={e => setGolesA(e.target.value)} placeholder="Goles A" type="number" className="border rounded-lg px-3 py-2 text-sm" />
-            <input required value={golesB} onChange={e => setGolesB(e.target.value)} placeholder="Goles B" type="number" className="border rounded-lg px-3 py-2 text-sm" />
-          </div>
-          <button type="submit" className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">Guardar y calcular puntos</button>
-        </form>
-      </div>
-    </div>
-  )
-}
+                                 <span className={d.puntos
