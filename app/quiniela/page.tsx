@@ -574,7 +574,7 @@ function TablaDetalle({
     setLoadingPicks(false)
   }
 
-  async function verDetalle(userId: string, nombre: string, 'jornada': number) {
+  async function verDetalle(userId: string, nombre: string, jornada: number) {
     if (vistaDetalle === nombre) { setVistaDetalle(null); return }
     setLoadingDetalle(true)
     setVistaDetalle(nombre)
