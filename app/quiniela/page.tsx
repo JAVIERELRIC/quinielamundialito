@@ -558,7 +558,7 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jorna
     <div className="space-y-3">
       <div className="bg-white rounded-xl border border-gray-200 p-3">
         <div className="flex gap-1 overflow-x-auto pb-1">
-          {jurnadas.map(j => (
+          {jornadas.map(j => (
             <button key={j} onClick={() => setJornadaTablaFiltro(j)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${jornadaTablaFiltro === j ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{JORNADA_LABELS2[j] || 'J'+j}</button>
           ))}
         </div>
