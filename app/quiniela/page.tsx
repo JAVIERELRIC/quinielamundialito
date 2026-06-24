@@ -82,8 +82,8 @@ export default function QuinielaPage() {
         if (p.goles_a_pred !== null && p.goles_b_pred !== null) {
           predMap[p.partido_id] = { a: p.goles_a_pred, b: p.goles_b_pred }
         }
-        // 🔥 PASO 3.2: Llenar el mapa con lo que el usuario ya tenga guardado en Supabase
-        penalesMap[p.partido_id] = p.predice_penales || false
+        // 🔥 PASO 3.2: Blindaje contra nulos al llenar el mapa de memoria
+        penalesMap[p.partido_id] = p.predice_penales ?? false
       })
       setSavedPicks(new Set(picksData.map((p: any) => p.partido_id)))
       setPicks(map)
@@ -447,13 +447,13 @@ export default function QuinielaPage() {
                           </div>
                         </div>
 
-                        {/* 🔥 PASO 4: Interfaz del Checkbox para predecir si habrá penales */}
+                        {/* 🔥 PASO 4: Interfaz del Checkbox con blindaje double-bang (!!) para evitar booleanos vacíos */}
                         <div className="mt-2.5 border-t border-gray-200/60 pt-2 flex items-center justify-center">
                           <label className="text-xs font-medium text-gray-600 flex items-center gap-2 cursor-pointer select-none">
                             <input 
                               type="checkbox"
                               disabled={m.cerrado || !!res}
-                              checked={penalesPred[m.id] || false}
+                              checked={!!penalesPred[m.id]}
                               onChange={() => togglePenalesPred(m.id)}
                               className="rounded border-gray-300 text-green-600 focus:ring-green-500 h-3.5 w-3.5"
                             />
@@ -610,7 +610,7 @@ function TablaDetalle({
         goles_a: p.goles_a_reales,
         goles_b: p.goles_b_reales,
         puntos: puntosGanados,
-        fase: partido?.fase || 'grupos',
+        fase: partido?.fase || 'grupos'
       }
     }).sort((a: DetalleRow, b: DetalleRow) => a.partido_id - b.partido_id)
 
