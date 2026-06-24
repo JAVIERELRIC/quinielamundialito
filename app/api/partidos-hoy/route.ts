@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 export const dynamic = 'force-dynamic' 
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+
 
 // Inicializamos el cliente de Supabase para el Servidor
 // Asegúrate de que tus variables de entorno coincidan con tu archivo .env.local
