@@ -9,6 +9,17 @@ type PicksMap = Record<number, PickOption>
 type ResultadosMap = Record<number, { goles_a: number; goles_b: number }>
 type PosicionRow = { user_id: string; nombre: string; puntos_total: number; picks_correctos: number; picks_totales: number; jornada: number }
 
+type DetalleRow = { 
+  partido_id: number; 
+  equipo_a: string; 
+  equipo_b: string; 
+  pick: string; 
+  goles_a: number | null; 
+  goles_b: number | null; 
+  puntos: number; 
+  fase: string 
+}
+
 type PickFromView = {
   pick_id: number
   user_id: string
@@ -30,6 +41,7 @@ type PickFromView = {
 
 type Match = { id: number; grupo: string; equipo_a: string; equipo_b: string; jornada: number; fase: string; cerrado: boolean; fecha_hora?: string }
 type UserProfile = { id: string; nombre: string; email: string; es_admin: boolean }
+type PicksGlobales = Record<string, Record<number, string>>
 
 export default function QuinielaPage() {
   const router = useRouter()
@@ -86,7 +98,6 @@ export default function QuinielaPage() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
       
-      // Ajuste anti error 406
       const { data: profs } = await supabase.from('profiles').select('*').eq('email', session.user.email)
       if (!profs || profs.length === 0) { 
         await supabase.auth.signOut()
@@ -118,7 +129,6 @@ export default function QuinielaPage() {
         setEquipos(Array.from(new Set(todos)).sort())
       }
 
-      // Solicitamos la agenda de partidos a la API
       fetch('/api/partidos-hoy', { cache: 'no-store' })
         .then(res => res.json())
         .then(data => {
@@ -162,7 +172,6 @@ export default function QuinielaPage() {
     setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
   }
 
-  // Interfaz de checkbox para alternar la predicción de penales
   function togglePenalesPred(partidoId: number) {
     setPenalesPred(prev => ({ ...prev, [partidoId]: !prev[partidoId] }))
     setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
@@ -247,7 +256,6 @@ export default function QuinielaPage() {
               {pendientes.size > 0 && <p className="text-xs text-amber-600 mt-1.5">⚠️ Tienes {pendientes.size} picks sin guardar o modificados</p>}
             </div>
 
-            {/* WIDGET CORREGIDO ANTI-DESFASE */}
             {partidosDeHoy.length > 0 && (
               <div className="bg-gradient-to-br from-gray-900 to-blue-950 text-white rounded-xl p-4 mb-4 shadow-lg border border-white/5">
                 <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
@@ -262,7 +270,6 @@ export default function QuinielaPage() {
                   {partidosDeHoy.map(m => {
                     const res = resultados[m.id]
                     
-                    // Ajuste de Zona Horaria estricto a nivel de vista
                     const fechaPartidoUTC = m.fecha_hora ? new Date(m.fecha_hora) : new Date()
                     const hoyLocal = new Date().toLocaleDateString('es-MX', { timeZone: 'America/Monterrey' })
                     const partidoLocal = fechaPartidoUTC.toLocaleDateString('es-MX', { timeZone: 'America/Monterrey' })
@@ -456,7 +463,15 @@ export default function QuinielaPage() {
         )}
 
         {tab === 'tabla' && (
-          <TablaDetalle posiciones={posiciones} profile={profile} supabase={supabase} partidos={partidos} jornadas={jornadas} jornadaTablaFiltro={jornadaTablaFiltro} setJornadaTablaFiltro={setJornadaTablaFiltro} />
+          <TablaDetalle 
+            posiciones={posiciones} 
+            profile={profile} 
+            supabase={supabase} 
+            partidos={partidos} 
+            jornadas={jornadas} 
+            jornadaTablaFiltro={jornadaTablaFiltro} 
+            setJornadaTablaFiltro={setJornadaTablaFiltro} 
+          />
         )}
 
         {tab === 'reglas' && (
@@ -485,10 +500,23 @@ export default function QuinielaPage() {
   )
 }
 
-type DetalleRow = { partido_id: number; equipo_a: string; equipo_b: string; pick: string; goles_a: number | null; goles_b: number | null; puntos: number; fase: string }
-type PicksGlobales = Record<string, Record<number, string>>
-
-function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jornadaTablaFiltro, setJornadaTablaFiltro }: { posiciones: any[]; profile: any; supabase: any; partidos: any[]; jornadas: number[]; jornadaTablaFiltro: number; setJornadaTablaFiltro: (j: number) => void; }) {
+function TablaDetalle({ 
+  posiciones, 
+  profile, 
+  supabase, 
+  partidos, 
+  jornadas, 
+  jornadaTablaFiltro, 
+  setJornadaTablaFiltro 
+}: { 
+  posiciones: any[]; 
+  profile: any; 
+  supabase: any; 
+  partidos: any[]; 
+  jornadas: number[]; 
+  jornadaTablaFiltro: number; 
+  setJornadaTablaFiltro: (j: number) => void; 
+}) {
   const [vistaMode, setVistaMode] = useState<'ranking' | 'picks'>('ranking')
   const [grupoFiltro, setGrupoFiltro] = useState('todos')
   const [picksGlobales, setPicksGlobales] = useState<PicksGlobales>({})
@@ -496,7 +524,12 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jorna
   const [perfiles, setPerfiles] = useState<any[]>([])
 
   const JORNADA_LABELS2: Record<number, string> = {1:'J1',2:'J2',3:'J3',4:'16avos',5:'Octavos',6:'Cuartos',7:'Semis',8:'Final'}
-  const grupos = ['todos', ...Array.from(new Set(partidos.filter(p => p.jornada === jornadaTablaFiltro && p.grupo.length <= 2).map(p => p.grupo))).sort()]
+  const partidosFiltrados = partidos.filter(p => p.jornada === jornadaTablaFiltro && (grupoFiltro === 'todos' || p.grupo === grupoFiltro))
+  const pickLabel = (pick: string, pa: string, pb: string) => pick === 'A' ? pa.split(' ')[0] : pick === 'B' ? pb.split(' ')[0] : pick === 'empate' ? 'Emp' : '—'
+  
+  const [vistaDetalle, setVistaDetalle] = useState<string | null>(null)
+  const [detalle, setDetalle] = useState<DetalleRow[]>([])
+  const [loadingDetalle, setLoadingDetalle] = useState(false)
 
   async function cargarPicksGlobales() {
     if (Object.keys(picksGlobales).length > 0) return
@@ -513,13 +546,6 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jorna
     setLoadingPicks(false)
   }
 
-  const partidosFiltrados = partidos.filter(p => p.jornada === jornadaTablaFiltro && (grupoFiltro === 'todos' || p.grupo === grupoFiltro))
-  const pickLabel = (pick: string, pa: string, pb: string) => pick === 'A' ? pa.split(' ')[0] : pick === 'B' ? pb.split(' ')[0] : pick === 'empate' ? 'Emp' : '—'
-  
-  const [vistaDetalle, setVistaDetalle] = useState<string | null>(null)
-  const [detalle, setDetalle] = useState<DetalleRow[]>([])
-  const [loadingDetalle, setLoadingDetalle] = useState(false)
-
   async function verDetalle(userId: string, nombre: string) {
     if (vistaDetalle === nombre) { setVistaDetalle(null); return }
     setLoadingDetalle(true)
@@ -527,10 +553,12 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jorna
     
     const { data: picksData } = await supabase
       .from('vista_picks_puntos')
-      .select('partido_id, mi_ganador_pred, goles_a_pred, goles_b_pred, goles_a_reales, goles_b_reales, puntos_fase, acerto_ganador, acerto_marcador_exacto, acerto_tanda_penales')
+      .select('partido_id, mi_ganador_pred, goles_a_pred, goles_b_pred, goles_a_reales, goles_b_reales, puntos_fase, acerto_ganador, acerto_marcador_exacto, acerto_tanda_penales, jornada')
       .eq('user_id', userId)
-const mappedRows = (picksData || [])
-      .filter((p: any) => p.jornada === jornadaTablaFiltro) // Amarra de forma estricta la J1, J2, J3, etc.
+
+    // Filtramos usando la jornada seleccionada en la vista de la tabla
+    const mappedRows = (picksData || [])
+      .filter((p: any) => p.jornada === jornadaTablaFiltro)
       .map((p: any) => {
         const partido = partidos.find((pt: any) => pt.id === p.partido_id)
         let puntosGanados = 0
@@ -550,7 +578,6 @@ const mappedRows = (picksData || [])
         }
       })
 
-    // Ordenamos limpiamente por ID de partido
     const rows: DetalleRow[] = mappedRows.sort((a: any, b: any) => {
       return (a.partido_id || 0) - (b.partido_id || 0)
     })
@@ -558,46 +585,56 @@ const mappedRows = (picksData || [])
     setDetalle(rows)
     setLoadingDetalle(false)
   }
-    
 
   return (
     <div className="space-y-3">
       <div className="bg-white rounded-xl border border-gray-200 p-3">
         <div className="flex gap-1 overflow-x-auto pb-1">
           {jornadas.map(j => (
-            <button key={j} onClick={() => setJornadaTablaFiltro(j)} className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${jornadaTablaFiltro === j ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{JORNADA_LABELS2[j] || 'J'+j}</button>
+            <button key={j} onClick={() => setJornadaTablaFiltro(j)} 
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${jornadaTablaFiltro === j ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+              {JORNADA_LABELS2[j] || 'J'+j}
+            </button>
           ))}
         </div>
       </div>
 
       <div className="flex gap-1 bg-white rounded-xl border border-gray-200 p-1">
-        <button onClick={() => setVistaMode('ranking')} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'ranking' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>🏆 Ranking</button>
-        <button onClick={() => { setVistaMode('picks'); cargarPicksGlobales(); }} className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'picks' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>👀 Ver picks</button>
+        <button onClick={() => setVistaMode('ranking')} 
+          className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'ranking' ? 'bg-green-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+          🏆 Ranking
+        </button>
+        <button onClick={() => { setVistaMode('picks'); cargarPicksGlobales(); }} 
+          className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${vistaMode === 'picks' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-50'}`}>
+          👀 Ver picks
+        </button>
       </div>
 
       {vistaMode === 'picks' && (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs min-w-max">
-              <thead>
-                <tr className="border-b border-gray-100 bg-gray-50">
-                  <th className="text-left px-3 py-2 sticky left-0 bg-gray-50">Partido</th>
-                  {perfiles.map(p => <th key={p.id} className="px-3 py-2 text-center text-gray-500">{p.nombre.split(' ')[0]}</th>)}
-                </tr>
-              </thead>
-              <tbody>
-                {partidosFiltrados.map(m => (
-                  <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50">
-                    <td className="px-3 py-2 sticky left-0 bg-white font-medium">{m.equipo_a.split(' ')[0]} vs {m.equipo_b.split(' ')[0]}</td>
-                    {perfiles.map(p => {
-                      const pick = picksGlobales[p.id]?.[m.id]
-                      return <td key={p.id} className="px-3 py-2 text-center text-gray-600">{pick ? pickLabel(pick, m.equipo_a, m.equipo_b) : '—'}</td>
-                    })}
+          {loadingPicks ? <p className="p-4 text-xs text-center text-gray-500">Cargando picks globales...</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-max">
+                <thead>
+                  <tr className="border-b border-gray-100 bg-gray-50">
+                    <th className="text-left px-3 py-2 sticky left-0 bg-gray-50">Partido</th>
+                    {perfiles.map(p => <th key={p.id} className="px-3 py-2 text-center text-gray-500">{p.nombre.split(' ')[0]}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {partidosFiltrados.map(m => (
+                    <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="px-3 py-2 sticky left-0 bg-white font-medium">{m.equipo_a.split(' ')[0]} vs {m.equipo_b.split(' ')[0]}</td>
+                      {perfiles.map(p => {
+                        const pick = picksGlobales[p.id]?.[m.id]
+                        return <td key={p.id} className="px-3 py-2 text-center text-gray-600">{pick ? pickLabel(pick, m.equipo_a, m.equipo_b) : '—'}</td>
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -605,28 +642,51 @@ const mappedRows = (picksData || [])
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {posiciones.map((p, i) => (
             <div key={i}>
-              <button onClick={() => verDetalle(p.user_id, p.nombre)} className="w-full flex items-center gap-3 px-4 py-3 border-b hover:bg-gray-50 font-medium">
-                <span className="text-gray-400 w-5">{i + 1}</span>
+              <button onClick={() => verDetalle(p.user_id, p.nombre)} 
+                className="w-full flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 font-medium transition-colors">
+                <span className="text-gray-400 w-5 text-xs">{i + 1}</span>
                 <div className="flex-1 text-left">
                   <p className="text-sm text-gray-900">{p.nombre}</p>
                   <p className="text-xs text-gray-400">{p.picks_correctos} aciertos</p>
                 </div>
-                <span className="text-blue-700">{p.puntos_total} pts</span>
+                <span className="text-blue-700 text-sm font-semibold">{p.puntos_total} pts</span>
               </button>
+              
               {vistaDetalle === p.nombre && (
-                <div className="bg-gray-50 border-b p-4 text-xs">
-                  {loadingDetalle ? <p className="text-center">Cargando...</p> : 
-                    <table>
-                      <tbody>
-                        {detalle.map((d, idx) => (
-                          <tr key={idx} className="border-b">
-                            <td className="py-2">{d.equipo_a} vs {d.equipo_b}</td>
-                            <td className="text-center px-4 font-bold text-green-700">+{d.puntos}</td>
+                <div className="bg-gray-50/70 border-b border-gray-100 p-4 text-xs">
+                  {loadingDetalle ? (
+                    <p className="text-center text-gray-500 py-2">Cargando desglose...</p>
+                  ) : (
+                    <div className="max-w-md mx-auto bg-white rounded-lg border border-gray-100 overflow-hidden shadow-sm">
+                      <table className="w-full border-collapse">
+                        <thead>
+                          <tr className="bg-gray-50/80 border-b border-gray-100 text-gray-500 font-semibold">
+                            <th className="py-2 px-3 text-left">Enfrentamiento</th>
+                            <th className="py-2 px-3 text-center">Resultado</th>
+                            <th className="py-2 px-3 text-center">Puntos</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  }
+                        </thead>
+                        <tbody>
+                          {detalle.map((d, idx) => {
+                            const tieneResultado = d.goles_a !== null && d.goles_b !== null
+                            const filaEstilo = tieneResultado 
+                              ? d.puntos > 0 ? 'bg-green-50/40 text-green-900' : 'bg-red-50/40 text-red-900' 
+                              : '';
+
+                            return (
+                              <tr key={idx} className={`border-b border-gray-50 last:border-0 ${filaEstilo}`}>
+                               <td className="py-2 px-3 text-left font-medium">{d.equipo_a} vs {d.equipo_b}</td>
+                               <td className="py-2 px-3 text-center font-mono font-semibold">{tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}</td>
+                               <td className="py-2 px-3 text-center font-bold">
+                                 <span className={d.puntos > 0 ? 'text-green-700' : 'text-gray-400'}>+{d.puntos}</span>
+                               </td>
+                             </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -643,7 +703,6 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
   const [partidoId, setPartidoId] = useState('')
   const [golesA, setGolesA] = useState('')
   const [golesB, setGolesB] = useState('')
-  const [enviando, setEnviando] = useState(false)
 
   async function invitar(e: React.FormEvent) {
     e.preventDefault()
@@ -659,14 +718,6 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
     const data = await res.json()
     if (data.ok) { showToast('✅ Resultado cargado'); setPartidoId(''); setGolesA(''); setGolesB('') }
     else showToast('❌ ' + data.error)
-  }
-
-  async function enviarRecordatorio(jornada: number | null) {
-    setEnviando(true)
-    const res = await fetch('/api/reminders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jornada, admin_email: adminEmail }) })
-    const data = await res.json()
-    setEnviando(false)
-    showToast(`✅ Recordatorio enviado a ${data.enviados} personas`)
   }
 
   return (
