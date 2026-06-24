@@ -1,5 +1,6 @@
 'use client'
-import { Suspense, useState, useEffect } from 'react' // 🔥 Agregamos useEffect aquí
+
+import { Suspense, useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
@@ -14,25 +15,30 @@ function LoginForm() {
   const verificar = searchParams.get('verificar')
 
   // ==========================================
-  // 🚀 REDIRECCIÓN AUTOMÁTICA SI YA HAY SESIÓN
+  // 🚀 CONTROL INTEGRADO PARA EVITAR PARPADEOS
   // ==========================================
   useEffect(() => {
-    // Si el usuario ya inició sesión previamente, mándalo directo a la quiniela
+    let activo = true
+
+    // 1. Validamos si ya existe una sesión activa al montar el componente
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+      if (session && activo) {
         router.push('/quiniela')
       }
     })
 
-    // Si detecta que inicia sesión exitosamente tras meter el código, redirige de inmediato
+    // 2. Escucha estrictamente el evento de inicio de sesión (SIGNED_IN) para redirigir
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
+      if (session && event === 'SIGNED_IN' && activo) {
         router.push('/quiniela')
         router.refresh()
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      activo = false
+      subscription.unsubscribe()
+    }
   }, [router])
 
   // ==========================================
@@ -42,10 +48,12 @@ function LoginForm() {
     e.preventDefault()
     setLoading(true)
     setError('')
+    
     const { error } = await supabase.auth.signInWithOtp({
-      email,
+      email: email.trim(),
       options: { emailRedirectTo: `https://project-8vezg.vercel.app/auth/callback` },
     })
+    
     if (error) {
       setError('No se pudo enviar el correo. Verifica que estés registrado.')
     } else {
@@ -63,7 +71,7 @@ function LoginForm() {
     setError('')
 
     const { error } = await supabase.auth.verifyOtp({
-      email,
+      email: email.trim(),
       token: token.trim(),
       type: 'magiclink',
     })
@@ -72,14 +80,14 @@ function LoginForm() {
       setError('Código incorrecto o expirado. Verifica tu bandeja e intenta de nuevo.')
       setLoading(false)
     }
-    // Nota: El redireccionamiento lo maneja automáticamente el useEffect de arriba al detectar la sesión
+    // Nota: Si el token es correcto, el escucha 'onAuthStateChange' de arriba detecta el SIGNED_IN y hace el redireccionamiento limpio
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm">
         
-        {/* Encabezado */}
+        {/* Encabezado de la App */}
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">⚽</div>
           <h1 className="text-2xl font-semibold text-gray-900">Quiniela Mundial 2026</h1>
@@ -90,7 +98,9 @@ function LoginForm() {
 
         {/* CONTENEDOR DINÁMICO */}
         {!(enviado || verificar) ? (
-          /* PASO 1: CAPTURA DEL EMAIL */
+          /* ==========================================
+             PANTALLA PASO 1: CAPTURA DEL EMAIL
+             ========================================== */
           <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Correo electrónico
@@ -103,7 +113,9 @@ function LoginForm() {
               placeholder="tu@correo.com"
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent mb-4"
             />
-            {error && <p className="text-red-500 text-xs mb-3 text-center">{error}</p>}
+            
+            {error && <p className="text-red-500 text-xs mb-3 text-center font-medium">{error}</p>}
+            
             <button
               type="submit"
               disabled={loading}
@@ -112,12 +124,15 @@ function LoginForm() {
             >
               {loading ? 'Enviando...' : 'Enviar link de acceso →'}
             </button>
+            
             <p className="text-xs text-gray-400 text-center mt-3">
               Solo funciona si ya fuiste invitado
             </p>
           </form>
         ) : (
-          /* PASO 2: INPUT NUMÉRICO */
+          /* ==========================================
+             PANTALLA PASO 2: MENSAJE DE ENVIADO + INPUT NUMÉRICO
+             ========================================== */
           <form onSubmit={handleVerifyToken} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
             
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
