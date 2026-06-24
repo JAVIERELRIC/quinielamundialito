@@ -547,7 +547,8 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jorna
         puntos: puntosGanados,
         fase: partido?.fase || 'grupos'
       }
-    }).sort((a, b) => a.partido_id - b.partido_id)
+    // Le especificamos el tipo de dato a los argumentos del sort
+      }).sort((a: DetalleRow, b: DetalleRow) => a.partido_id - b.partido_id)
 
     setDetalle(rows)
     setLoadingDetalle(false)
