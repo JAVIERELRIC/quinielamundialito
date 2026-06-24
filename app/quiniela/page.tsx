@@ -546,7 +546,7 @@ function TablaDetalle({
     setLoadingPicks(false)
   }
 
-  async function verDetalle(userId: string, nombre: string) {
+  async function verDetalle(userId: string, nombre: string, jornada: number) {
     if (vistaDetalle === nombre) { setVistaDetalle(null); return }
     setLoadingDetalle(true)
     setVistaDetalle(nombre)
@@ -642,7 +642,7 @@ function TablaDetalle({
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {posiciones.map((p, i) => (
             <div key={i}>
-              <button onClick={() => verDetalle(p.user_id, p.nombre)} 
+              <button onClick={() => verDetalle(p.user_id, p.nombre, jornadaTablaFiltro)} 
                 className="w-full flex items-center gap-3 px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 font-medium transition-colors">
                 <span className="text-gray-400 w-5 text-xs">{i + 1}</span>
                 <div className="flex-1 text-left">
