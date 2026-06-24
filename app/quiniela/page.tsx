@@ -722,17 +722,37 @@ function TablaDetalle({
                               .filter((d) => partidos.find((m) => m.id === d.partido_id)?.jornada === jornadaTablaFiltro)
                               .map((d, idx) => {
                                 const tieneResultado = d.goles_a !== null && d.goles_b !== null
+                                
+                                // 🛠️ SOLUCIÓN 1: El fondo SOLO se pinta verde/rojo si el partido ya se jugó
+                                const filaEstilo = tieneResultado 
+                                  ? d.puntos > 0 
+                                    ? 'bg-green-50' 
+                                    : 'bg-red-50' 
+                                  : ''; // En blanco si está pendiente por disputar
+
+                                // 🛠️ SOLUCIÓN 2: Reemplazar las letras crudas por el nombre real del equipo
+                                let labelPickFormateado = '—'
+                                if (d.pick === 'A') {
+                                  labelPickFormateado = d.equipo_a
+                                } else if (d.pick === 'B') {
+                                  labelPickFormateado = d.equipo_b
+                                } else if (d.pick === 'empate') {
+                                  labelPickFormateado = 'Empate'
+                                }
+
                                 return (
-                                  <tr key={idx} className={`border-b border-gray-100 last:border-0 ${d.puntos > 0 ? 'bg-green-50' : tieneResultado ? 'bg-red-50' : ''}`}>
-                                    <td className="py-1.5 pr-2">
-                                      <span className="text-gray-500">{faseLabel[d.fase] || d.fase} #{d.partido_id}</span><br/>
+                                  <tr key={idx} className={`border-b border-gray-100 last:border-0 ${filaEstilo}`}>
+                                    <td className="py-2 pr-2">
+                                      <span className="text-[10px] text-gray-400 font-medium">{faseLabel[d.fase] || d.fase} #{d.partido_id}</span><br/>
                                       <span className="font-medium text-gray-800">{d.equipo_a} vs {d.equipo_b}</span>
                                     </td>
-                                    <td className="py-1.5 text-center text-gray-600">
+                                    <td className="py-2 text-center text-gray-600 font-mono font-medium">
                                       {tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}
                                     </td>
-                                    <td className="py-1.5 text-center font-medium text-gray-800">{d.pick}</td>
-                                    <td className="py-1.5 text-center font-semibold">
+                                    <td className="py-2 text-center font-semibold text-gray-700">
+                                      {labelPickFormateado}
+                                    </td>
+                                    <td className="py-2 text-center font-bold">
                                       {tieneResultado ? (
                                         <span className={d.puntos > 0 ? 'text-green-700' : 'text-red-500'}>
                                           {d.puntos > 0 ? `+${d.puntos}` : '0'}
