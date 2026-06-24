@@ -33,7 +33,7 @@ function LoginForm() {
   }
 
   // ==========================================
-  // PASO 2: Verificar el código numérico (OTP) ingresado
+  // PASO 2: Verificar el código numérico (OTP) ingresad
   // ==========================================
   async function handleVerifyToken(e: React.FormEvent) {
     e.preventDefault()
