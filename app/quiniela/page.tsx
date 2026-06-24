@@ -4,10 +4,28 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { GRUPOS } from '@/lib/matches'
 
-type Pick = 'A' | 'empate' | 'B'
-type PicksMap = Record<number, Pick>
+type PickOption = 'A' | 'empate' | 'B'
+type PicksMap = Record<number, PickOption>
 type ResultadosMap = Record<number, { goles_a: number; goles_b: number }>
 type PosicionRow = { user_id: string; nombre: string; puntos_total: number; picks_correctos: number; picks_totales: number; jornada: number }
+
+// Tipo mapeado exactamente a las columnas que entrega tu nueva vista_picks_puntos
+type PickFromView = {
+  pick_id: number
+  user_id: string
+  partido_id: number
+  mi_ganador_pred: PickOption
+  goles_a_pred: number | null
+  goles_b_pred: number | null
+  goles_a_reales: number | null
+  goles_b_reales: number | null
+  puntos_fase: number
+  jornada: number
+  resultado_real: string
+  acerto_ganador: number
+  acerto_marcador_exacto: number
+}
+
 type Match = { id: number; grupo: string; equipo_a: string; equipo_b: string; jornada: number; fase: string; cerrado: boolean; fecha_hora?: string }
 type UserProfile = { id: string; nombre: string; email: string; es_admin: boolean }
 
@@ -19,6 +37,10 @@ export default function QuinielaPage() {
   const [grupoActivo, setGrupoActivo] = useState('todos')
   const [partidos, setPartidos] = useState<Match[]>([])
   const [jornadas, setJornadas] = useState<number[]>([1,2,3])
+  
+  // Guardamos la lista completa de lo que entrega la vista procesada
+  const [picksViewData, setPicksViewData] = useState<PickFromView[]>([])
+  
   const [picks, setPicks] = useState<PicksMap>({})
   const [savedPicks, setSavedPicks] = useState<Set<number>>(new Set())
   const [pendientes, setPendientes] = useState<Set<number>>(new Set())
@@ -36,6 +58,30 @@ export default function QuinielaPage() {
   // Nuevo estado para controlar qué jornada se visualiza exclusivamente en la pestaña de Tabla/Ranking
   const [jornadaTablaFiltro, setJornadaTablaFiltro] = useState(2)
 
+  const cargarDatosQuiniela = async (userId: string) => {
+    // 🚀 Consumir directo de la nueva vista de Supabase para tener cálculos en tiempo real
+    const { data: picksData } = await supabase
+      .from('vista_picks_puntos')
+      .select('*')
+      .eq('user_id', userId)
+
+    if (picksData) {
+      setPicksViewData(picksData as PickFromView[])
+      const map: PicksMap = {}
+      const predMap: Record<number, {a: number, b: number}> = {}
+      
+      picksData.forEach((p: any) => { 
+        map[p.partido_id] = p.mi_ganador_pred 
+        if (p.goles_a_pred !== null && p.goles_b_pred !== null) {
+          predMap[p.partido_id] = { a: p.goles_a_pred, b: p.goles_b_pred }
+        }
+      })
+      setSavedPicks(new Set(picksData.map((p: any) => p.partido_id)))
+      setPicks(map)
+      setPredicciones(predMap)
+    }
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.push('/login'); return }
@@ -49,26 +95,13 @@ export default function QuinielaPage() {
       if (todosPartidos) {
         setPartidos(todosPartidos)
         const jornadasUnicas: number[] = Array.from(new Set(todosPartidos.map((p: any) => p.jornada as number))).sort((a,b) => a-b)
-        setJornadas(jornadasUnicas)
+        setJornadas(jurnadasUnicas)
       }
       
-      // Cargar picks
-      const { data: picksData } = await supabase
-        .from('picks').select('partido_id, pick, goles_a_pred, goles_b_pred').eq('user_id', prof.id)
-      const map: PicksMap = {}
-      const predMap: Record<number, {a: number, b: number}> = {}
+      // Carga inicial mapeada a la vista
+      await cargarDatosQuiniela(prof.id)
       
-      picksData?.forEach((p: any) => { 
-        map[p.partido_id] = p.pick 
-        if (p.goles_a_pred !== null && p.goles_b_pred !== null) {
-          predMap[p.partido_id] = { a: p.goles_a_pred, b: p.goles_b_pred }
-        }
-      })
-      setSavedPicks(new Set(picksData?.map((p: any) => p.partido_id) || []))
-      setPicks(map)
-      setPredicciones(predMap)
-      
-      // Cargar resultados
+      // Cargar resultados oficiales de los partidos terminados
       const { data: partidosResultados } = await supabase
         .from('partidos').select('id, goles_a, goles_b').not('goles_a', 'is', null)
       const resMap: ResultadosMap = {}
@@ -86,8 +119,8 @@ export default function QuinielaPage() {
         setEquipos(Array.from(new Set(todos)).sort())
       }
 
-      // Cargar la agenda de partidos de Hoy y Mañana desde nuestra nueva API
-      fetch('/api/partidos-hoy')
+      // Cargar la agenda de partidos de Hoy y Mañana desde nuestra nueva API (sin caché)
+      fetch('/api/partidos-hoy', { cache: 'no-store' })
         .then(res => res.json())
         .then(data => {
           if (data.ok) setPartidosDeHoy(data.partidos)
@@ -131,7 +164,7 @@ export default function QuinielaPage() {
     else showToast('❌ Error al guardar')
   }
 
-  function setPick(partidoId: number, pick: Pick) {
+  function setPick(partidoId: number, pick: PickOption) {
     setPicks(prev => ({ ...prev, [partidoId]: pick }))
     setPendientes(prev => { const s = new Set(prev); s.add(partidoId); return s })
   }
@@ -163,9 +196,10 @@ export default function QuinielaPage() {
     const { error } = await supabase.from('picks').upsert(rows, { onConflict: 'user_id,partido_id' })
     setGuardando(false)
     if (!error) { 
-      setSavedPicks(prev => { const s = new Set(prev); rows.forEach((r: any) => s.add(r.partido_id)); return s }); 
       setPendientes(new Set()); 
       showToast(`✅ ${rows.length} picks guardados`) 
+      // Forzar recarga de la vista calculada tras guardar cambios con éxito
+      await cargarDatosQuiniela(profile.id)
     }
     else showToast('❌ Error al guardar')
   }
@@ -322,14 +356,30 @@ export default function QuinielaPage() {
               {matchesFiltrados.map(m => {
                 const res = resultados[m.id]
                 const miPick = picks[m.id]
-                let resultado: Pick | null = null
-                if (res) resultado = res.goles_a > res.goles_b ? 'A' : res.goles_b > res.goles_a ? 'B' : 'empate'
-                const acerto = miPick && resultado && miPick === resultado
+                
+                // Jalar los datos procesados correspondientes a este partido de la nueva vista
+                const pickDataFromView = picksViewData.find(p => p.partido_id === m.id)
+                const acertoGanador = pickDataFromView?.acerto_ganador === 1
+                const acertoMarcadorExacto = pickDataFromView?.acerto_marcador_exacto === 1
+
+                // Lógica de colores dinámica: Verde = Exacto, Amarillo = Solo Ganador (Caso Part. 75), Rojo = Falló
+                const statusBadgeColor = res 
+                  ? acertoMarcadorExacto 
+                    ? 'bg-green-100 text-green-700' 
+                    : acertoGanador 
+                      ? 'bg-yellow-100 text-yellow-800' 
+                      : 'bg-red-50 text-red-600'
+                  : 'bg-gray-100 text-gray-600'
+
                 return (
                   <div key={m.id} className={`bg-white rounded-xl border p-3.5 ${pendientes.has(m.id) ? 'border-amber-300' : 'border-gray-200'}`}>
                     <div className="flex justify-between items-center mb-2">
                       <span className="text-xs text-gray-400 font-medium">Grupo {m.grupo}</span>
-                      {res && <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${acerto ? 'bg-green-100 text-green-700' : 'bg-red-50 text-red-600'}`}>{res.goles_a}–{res.goles_b} {acerto ? '✅' : '❌'}</span>}
+                      {res && (
+                        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${statusBadgeColor}`}>
+                          {res.goles_a}–{res.goles_b} {acertoMarcadorExacto ? '🎯' : acertoGanador ? '✅' : '❌'}
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 mb-3">
                       <span className="flex-1 text-sm font-medium text-gray-900">{m.equipo_a}</span>
@@ -337,13 +387,12 @@ export default function QuinielaPage() {
                       <span className="flex-1 text-sm font-medium text-gray-900 text-right">{m.equipo_b}</span>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5">
-                      {(m.fase === 'grupos' ? (['A', 'empate', 'B'] as Pick[]) : (['A', 'B'] as Pick[])).map(op => {
+                      {(m.fase === 'grupos' ? (['A', 'empate', 'B'] as PickOption[]) : (['A', 'B'] as PickOption[])).map(op => {
                         const label = op === 'A' ? m.equipo_a.split(' ')[0] : op === 'B' ? m.equipo_b.split(' ')[0] : 'Empate'
                         const sel = miPick === op
-                        const esRes = resultado === op
                         return (
                           <button key={op} disabled={!!res || m.cerrado} onClick={() => setPick(m.id, op)}
-                            className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all ${res && esRes ? 'bg-green-100 border-green-400 text-green-800' : sel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${(res || m.cerrado) ? 'cursor-default opacity-80' : ''}`}>
+                            className={`py-1.5 px-2 rounded-lg text-xs font-medium border transition-all ${sel ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-200 text-gray-600 hover:bg-gray-50'} ${(res || m.cerrado) ? 'cursor-default opacity-80' : ''}`}>
                             {label}
                           </button>
                         )
@@ -502,27 +551,37 @@ function TablaDetalle({
     if (vistaDetalle === nombre) { setVistaDetalle(null); return }
     setLoadingDetalle(true)
     setVistaDetalle(nombre)
+    
+    // Cambiado para jalar de vista_picks_puntos y reflejar la nueva regla de puntos combinados
     const { data: picksData } = await supabase
-      .from('picks')
-      .select('partido_id, pick, puntos')
+      .from('vista_picks_puntos')
+      .select('partido_id, mi_ganador_pred, goles_a_pred, goles_b_pred, goles_a_reales, goles_b_reales, puntos_fase, acerto_ganador, acerto_marcador_exacto')
       .eq('user_id', userId)
-    const { data: partidosData } = await supabase
-      .from('partidos')
-      .select('id, equipo_a, equipo_b, goles_a, goles_b, fase')
-      .order('id')
+
     const rows: DetalleRow[] = (picksData || []).map((p: any) => {
-      const partido = partidosData?.find((pt: any) => pt.id === p.partido_id)
+      const partido = partidos.find((pt: any) => pt.id === p.partido_id)
+      
+      // Calcular los puntos totales asignados en base a la regla mixta
+      let puntosGanados = 0
+      if (p.acerto_ganador === 1) {
+        puntosGanados += p.puntos_fase // 1 o los puntos de la fase
+        if (p.acerto_marcador_exacto === 1) {
+          puntosGanados += 1 // +1 Punto extra por marcador exacto
+        }
+      }
+
       return {
         partido_id: p.partido_id,
         equipo_a: partido?.equipo_a || '?',
         equipo_b: partido?.equipo_b || '?',
-        pick: p.pick,
-        goles_a: partido?.goles_a ?? null,
-        goles_b: partido?.goles_b ?? null,
-        puntos: p.puntos,
+        pick: p.mi_ganador_pred,
+        goles_a: p.goles_a_reales,
+        goles_b: p.goles_b_reales,
+        puntos: puntosGanados,
         fase: partido?.fase || 'grupos',
       }
     }).sort((a: DetalleRow, b: DetalleRow) => a.partido_id - b.partido_id)
+
     setDetalle(rows)
     setLoadingDetalle(false)
   }
@@ -534,7 +593,6 @@ function TablaDetalle({
 
   return (
     <div className="space-y-3">
-      {/* Selector de Jornadas Superior para el Tablero General */}
       <div className="bg-white rounded-xl border border-gray-200 p-3">
         <p className="text-xs font-semibold text-gray-500 mb-2">Filtrar clasificación por jornada:</p>
         <div className="flex gap-1 overflow-x-auto pb-1">
@@ -664,7 +722,6 @@ function TablaDetalle({
                               .filter((d) => partidos.find((m) => m.id === d.partido_id)?.jornada === jornadaTablaFiltro)
                               .map((d, idx) => {
                                 const tieneResultado = d.goles_a !== null && d.goles_b !== null
-                                const labelPick = d.pick === 'A' ? d.equipo_a.split(' ')[0] : d.pick === 'B' ? d.equipo_b.split(' ')[0] : 'Empate'
                                 return (
                                   <tr key={idx} className={`border-b border-gray-100 last:border-0 ${d.puntos > 0 ? 'bg-green-50' : tieneResultado ? 'bg-red-50' : ''}`}>
                                     <td className="py-1.5 pr-2">
@@ -674,7 +731,7 @@ function TablaDetalle({
                                     <td className="py-1.5 text-center text-gray-600">
                                       {tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}
                                     </td>
-                                    <td className="py-1.5 text-center font-medium text-gray-800">{labelPick}</td>
+                                    <td className="py-1.5 text-center font-medium text-gray-800">{d.pick}</td>
                                     <td className="py-1.5 text-center font-semibold">
                                       {tieneResultado ? (
                                         <span className={d.puntos > 0 ? 'text-green-700' : 'text-red-500'}>
