@@ -525,7 +525,35 @@ function TablaDetalle({
 
   const JORNADA_LABELS2: Record<number, string> = {1:'J1',2:'J2',3:'J3',4:'16avos',5:'Octavos',6:'Cuartos',7:'Semis',8:'Final'}
   const partidosFiltrados = partidos.filter(p => p.jornada === jornadaTablaFiltro && (grupoFiltro === 'todos' || p.grupo === grupoFiltro))
-  const pickLabel = (pick: string, pa: string, pb: string) => pick === 'A' ? pa.split(' ')[0] : pick === 'B' ? pb.split(' ')[0] : pick === 'empate' ? 'Emp' : '—'
+  
+  // 🔥 LÓGICA DE LA PROPUESTA 3 INTEGRADA CON TAILWIND
+  const renderEstiloCeldaPick = (pick: string, pa: string, pb: string) => {
+    const valor = pick?.trim().toLowerCase()
+    if (!valor) return <span className="text-gray-300 font-medium">—</span>
+
+    if (valor === 'empate') {
+      return (
+        <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-gray-100 text-gray-600 border border-gray-200 uppercase tracking-tight">
+          🤝 Emp
+        </span>
+      )
+    }
+    if (valor === 'a') {
+      return (
+        <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-green-100 text-green-800 border border-green-200 uppercase tracking-tight">
+          🏠 {pa.substring(0, 3).toUpperCase()}
+        </span>
+      )
+    }
+    if (valor === 'b') {
+      return (
+        <span className="inline-block px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-200 uppercase tracking-tight">
+          🚀 {pb.substring(0, 3).toUpperCase()}
+        </span>
+      )
+    }
+    return <span className="text-gray-400">—</span>
+  }
   
   const [vistaDetalle, setVistaDetalle] = useState<string | null>(null)
   const [detalle, setDetalle] = useState<DetalleRow[]>([])
@@ -546,7 +574,7 @@ function TablaDetalle({
     setLoadingPicks(false)
   }
 
-  async function verDetalle(userId: string, nombre: string,  jornada: number) {
+  async function verDetalle(userId: string, nombre: string, 'jornada': number) {
     if (vistaDetalle === nombre) { setVistaDetalle(null); return }
     setLoadingDetalle(true)
     setVistaDetalle(nombre)
@@ -557,7 +585,7 @@ function TablaDetalle({
       .eq('user_id', userId)
 
     const mappedRows = (picksData || [])
-      .filter((p: any) => p.jornada === jornada)
+      .filter((p: any) => p.jornada === 'jornada')
       .map((p: any) => {
         const partido = partidos.find((pt: any) => pt.id === p.partido_id)
         let puntosGanados = 0
@@ -615,23 +643,29 @@ function TablaDetalle({
       </div>
 
       {vistaMode === 'picks' && (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
           {loadingPicks ? <p className="p-4 text-xs text-center text-gray-500">Cargando picks globales...</p> : (
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-max">
+              <table className="w-full text-xs min-w-max border-collapse">
                 <thead>
-                  <tr className="border-b border-gray-100 bg-gray-50">
-                    <th className="text-left px-3 py-2 sticky left-0 bg-gray-50">Partido</th>
-                    {perfiles.map(p => <th key={p.id} className="px-3 py-2 text-center text-gray-500">{p.nombre.split(' ')[0]}</th>)}
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left px-4 py-3 sticky left-0 bg-gray-50 font-semibold text-gray-700 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">Partido</th>
+                    {perfiles.map(p => <th key={p.id} className="px-3 py-3 text-center text-gray-600 font-semibold">{p.nombre.split(' ')[0]}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {partidosFiltrados.map(m => (
-                    <tr key={m.id} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="px-3 py-2 sticky left-0 bg-white font-medium">{m.equipo_a.split(' ')[0]} vs {m.equipo_b.split(' ')[0]}</td>
+                    <tr key={m.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/80 transition-colors">
+                      <td className="px-4 py-2.5 sticky left-0 bg-white font-medium text-gray-800 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        <span className="truncate block max-w-[160px]">{m.equipo_a.split(' ')[0]} vs {m.equipo_b.split(' ')[0]}</span>
+                      </td>
                       {perfiles.map(p => {
                         const pick = picksGlobales[p.id]?.[m.id]
-                        return <td key={p.id} className="px-3 py-2 text-center text-gray-600">{pick ? pickLabel(pick, m.equipo_a, m.equipo_b) : '—'}</td>
+                        return (
+                          <td key={p.id} className="px-2 py-2.5 text-center vertical-middle">
+                            {renderEstiloCeldaPick(pick, m.equipo_a, m.equipo_b)}
+                          </td>
+                        )
                       })}
                     </tr>
                   ))}
@@ -737,7 +771,7 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
       <div className="bg-white rounded-xl border p-4">
         <h3 className="font-medium mb-3">Cargar resultado</h3>
         <form onSubmit={cargarResultado} className="space-y-2">
-          <input required value={partidoId} onChange={e => setPartidoId(e.target.value)} placeholder="ID del partido" type="number" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <input required value={partidoId} onChange={e => setPartidoId(m => parseInt(m) >= 1 ? m : '')} placeholder="ID del partido" type="number" className="w-full border rounded-lg px-3 py-2 text-sm" />
           <div className="grid grid-cols-2 gap-2">
             <input required value={golesA} onChange={e => setGolesA(e.target.value)} placeholder="Goles A" type="number" className="border rounded-lg px-3 py-2 text-sm" />
             <input required value={golesB} onChange={e => setGolesB(e.target.value)} placeholder="Goles B" type="number" className="border rounded-lg px-3 py-2 text-sm" />
