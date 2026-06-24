@@ -529,30 +529,36 @@ function TablaDetalle({ posiciones, profile, supabase, partidos, jornadas, jorna
       .from('vista_picks_puntos')
       .select('partido_id, mi_ganador_pred, goles_a_pred, goles_b_pred, goles_a_reales, goles_b_reales, puntos_fase, acerto_ganador, acerto_marcador_exacto, acerto_tanda_penales')
       .eq('user_id', userId)
+const mappedRows = (picksData || [])
+      .filter((p: any) => p.jornada === jornadaTablaFiltro) // Amarra de forma estricta la J1, J2, J3, etc.
+      .map((p: any) => {
+        const partido = partidos.find((pt: any) => pt.id === p.partido_id)
+        let puntosGanados = 0
+        if (p.acerto_ganador === 1) puntosGanados += p.puntos_fase 
+        if (p.acerto_marcador_exacto === 1) puntosGanados += 1 
+        if (p.acerto_tanda_penales === 1) puntosGanados += 1 
 
-    const rows: DetalleRow[] = (picksData || []).map((p: any) => {
-      const partido = partidos.find((pt: any) => pt.id === p.partido_id)
-      let puntosGanados = 0
-      if (p.acerto_ganador === 1) puntosGanados += p.puntos_fase 
-      if (p.acerto_marcador_exacto === 1) puntosGanados += 1 
-      if (p.acerto_tanda_penales === 1) puntosGanados += 1 
+        return {
+          partido_id: p.partido_id,
+          equipo_a: partido?.equipo_a || '?',
+          equipo_b: partido?.equipo_b || '?',
+          pick: p.mi_ganador_pred,
+          goles_a: p.goles_a_reales,
+          goles_b: p.goles_b_reales,
+          puntos: puntosGanados,
+          fase: partido?.fase || 'grupos'
+        }
+      })
 
-      return {
-        partido_id: p.partido_id,
-        equipo_a: partido?.equipo_a || '?',
-        equipo_b: partido?.equipo_b || '?',
-        pick: p.mi_ganador_pred,
-        goles_a: p.goles_a_reales,
-        goles_b: p.goles_b_reales,
-        puntos: puntosGanados,
-        fase: partido?.fase || 'grupos'
-      }
-    // Le especificamos el tipo de dato a los argumentos del sort
-      }).sort((a: DetalleRow, b: DetalleRow) => a.partido_id - b.partido_id)
+    // Ordenamos limpiamente por ID de partido
+    const rows: DetalleRow[] = mappedRows.sort((a: any, b: any) => {
+      return (a.partido_id || 0) - (b.partido_id || 0)
+    })
 
     setDetalle(rows)
     setLoadingDetalle(false)
   }
+    
 
   return (
     <div className="space-y-3">
