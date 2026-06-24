@@ -1,13 +1,12 @@
 'use client'
-
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 
 function LoginForm() {
   const router = useRouter()
   const [email, setEmail] = useState('')
-  const [token, setToken] = useState('')
+  const [token, setToken] = useState('') // 🔥 Estado para almacenar el código de acceso
   const [loading, setLoading] = useState(false)
   const [enviado, setEnviado] = useState(false)
   const [error, setError] = useState('')
@@ -15,45 +14,16 @@ function LoginForm() {
   const verificar = searchParams.get('verificar')
 
   // ==========================================
-  // 🚀 CONTROL INTEGRADO PARA EVITAR PARPADEOS
-  // ==========================================
-  useEffect(() => {
-    let activo = true
-
-    // 1. Validamos si ya existe una sesión activa al montar el componente
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session && activo) {
-        router.push('/quiniela')
-      }
-    })
-
-    // 2. Escucha estrictamente el evento de inicio de sesión (SIGNED_IN) para redirigir
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session && event === 'SIGNED_IN' && activo) {
-        router.push('/quiniela')
-        router.refresh()
-      }
-    })
-
-    return () => {
-      activo = false
-      subscription.unsubscribe()
-    }
-  }, [router])
-
-  // ==========================================
-  // PASO 1: Enviar el código al correo
+  // PASO 1: Enviar el código de acceso al correo
   // ==========================================
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
-    
     const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
+      email,
       options: { emailRedirectTo: `https://project-8vezg.vercel.app/auth/callback` },
     })
-    
     if (error) {
       setError('No se pudo enviar el correo. Verifica que estés registrado.')
     } else {
@@ -63,7 +33,7 @@ function LoginForm() {
   }
 
   // ==========================================
-  // PASO 2: Verificar el código numérico (OTP)
+  // PASO 2: Verificar el código numérico (OTP) ingresado
   // ==========================================
   async function handleVerifyToken(e: React.FormEvent) {
     e.preventDefault()
@@ -71,23 +41,26 @@ function LoginForm() {
     setError('')
 
     const { error } = await supabase.auth.verifyOtp({
-      email: email.trim(),
+      email,
       token: token.trim(),
-      type: 'magiclink',
+      type: 'magiclink', // Intercepta el código numérico de tu plantilla en Supabase
     })
 
     if (error) {
       setError('Código incorrecto o expirado. Verifica tu bandeja e intenta de nuevo.')
       setLoading(false)
+    } else {
+      // Éxito: Redirigimos de inmediato al dashboard de la quiniela
+      router.push('/quiniela')
+      router.refresh()
     }
-    // Nota: Si el token es correcto, el escucha 'onAuthStateChange' de arriba detecta el SIGNED_IN y hace el redireccionamiento limpio
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm">
         
-        {/* Encabezado de la App */}
+        {/* Encabezado Principal */}
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">⚽</div>
           <h1 className="text-2xl font-semibold text-gray-900">Quiniela Mundial 2026</h1>
@@ -113,9 +86,7 @@ function LoginForm() {
               placeholder="tu@correo.com"
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent mb-4"
             />
-            
-            {error && <p className="text-red-500 text-xs mb-3 text-center font-medium">{error}</p>}
-            
+            {error && <p className="text-red-500 text-xs mb-3 text-center">{error}</p>}
             <button
               type="submit"
               disabled={loading}
@@ -124,7 +95,6 @@ function LoginForm() {
             >
               {loading ? 'Enviando...' : 'Enviar link de acceso →'}
             </button>
-            
             <p className="text-xs text-gray-400 text-center mt-3">
               Solo funciona si ya fuiste invitado
             </p>
@@ -135,6 +105,7 @@ function LoginForm() {
              ========================================== */
           <form onSubmit={handleVerifyToken} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm space-y-4">
             
+            {/* Tu caja verde original adaptada */}
             <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
               <div className="text-2xl mb-1">📩</div>
               <p className="font-medium text-green-800 text-sm">¡Revisa tu correo!</p>
@@ -143,6 +114,7 @@ function LoginForm() {
               </p>
             </div>
 
+            {/* Input especial para escribir los números del token */}
             <div>
               <label className="block text-xs font-semibold text-gray-600 mb-1 text-center">
                 Escribe tu código de acceso
@@ -150,7 +122,7 @@ function LoginForm() {
               <input
                 required
                 type="text"
-                maxLength={8}
+                maxLength={8} // Soporta las longitudes de 6 u 8 números
                 value={token}
                 onChange={e => setToken(e.target.value)}
                 placeholder="000000"
