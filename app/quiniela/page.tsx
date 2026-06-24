@@ -95,7 +95,7 @@ export default function QuinielaPage() {
       if (todosPartidos) {
         setPartidos(todosPartidos)
         const jornadasUnicas: number[] = Array.from(new Set(todosPartidos.map((p: any) => p.jornada as number))).sort((a,b) => a-b)
-        setJornadas(jurnadasUnicas)
+        setJornadas(jornadasUnicas)
       }
       
       // Carga inicial mapeada a la vista
