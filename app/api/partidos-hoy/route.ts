@@ -1,52 +1,55 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-export const dynamic = 'force-dynamic' 
+import { supabase } from '@/lib/supabase' // Asegúrate de que esta ruta a tu cliente de Supabase sea la correcta
 
-
-
-// Inicializamos el cliente de Supabase para el Servidor
-// Asegúrate de que tus variables de entorno coincidan con tu archivo .env.local
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-const supabase = createClient(supabaseUrl, supabaseAnonKey)
+// 🔒 FUERZA A NEXT.JS A NO GUARDAR CACHÉ EN EL SERVIDOR
 export const dynamic = 'force-dynamic'
+
 export async function GET() {
-  try {
-    // 1. Obtenemos la hora actual del servidor (vía UTC, usualmente 6 horas adelantada)
-    const horaServidor = new Date()
+    try {
+        // 1. Configuración de fechas (Alineado a tu lógica actual de inicioHoy / finMañana)
+        const hoy = new Date()
 
-    // 2. Aplicamos el reajuste manual restando las 6 horas correspondientes a México (Monterrey)
-    // Esto obliga al backend de Vercel a situarse en tu mismo huso horario real
-    const horaMexico = new Date(horaServidor.getTime() - (6 * 60 * 60 * 1000))
+        // Inicio de hoy (00:00:00)
+        const inicioHoy = new Date(hoy)
+        inicioHoy.setHours(0, 0, 0, 0)
 
-    // 3. Calculamos el inicio de HOY (00:00:00) y el fin de MAÑANA (23:59:59) en tiempo local
-    const inicioHoy = new Date(horaMexico.setHours(0, 0, 0, 0)).toISOString()
-    
-    // Avanzamos el objeto un día completo para amarrar la agenda de mañana también
-    const horaMañana = new Date(horaMexico.getTime() + (24 * 60 * 60 * 1000))
-    const finMañana = new Date(horaMañana.setHours(23, 59, 59, 999)).toISOString()
+        // Fin de mañana (23:59:59)
+        const finMañana = new Date(hoy)
+        finMañana.setDate(hoy.getDate() + 1)
+        finMañana.setHours(23, 59, 59, 999)
 
-    // 4. Hacemos la consulta a la tabla de partidos usando los límites de tiempo locales corregidos
-      const { data: partidos, error } = await supabase
-          .from('partidos')
-          .select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado, fecha_hora')
-          .is('goles_a', null) // 🔒 FILTRO: Excluye partidos que ya tienen marcador o ya jugaron
-          .gte('fecha_hora', inicioHoy)
-          .lte('fecha_hora', finMañana)
-          .order('fecha_hora', { ascending: true })
+        // 2. Consulta a Supabase con el filtro de partidos no jugados (goles_a === null)
+        const { data: partidos, error } = await supabase
+            .from('partidos')
+            .select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado, fecha_hora')
+            .is('goles_a', null) // 🎯 Excluye partidos que ya jugaron o ya tienen marcador cargado
+            .gte('fecha_hora', inicioHoy.toISOString())
+            .lte('fecha_hora', finMañana.toISOString())
+            .order('fecha_hora', { ascending: true })
 
-      if (error) {
-          throw error
-      }
+        if (error) {
+            throw error
+        }
 
-    // Retornamos los partidos filtrados de forma limpia y sin caché
-    return NextResponse.json({ ok: true, partidos })
+        // 3. Retorno con deshabilitación estricta de caché a nivel Navegador (Client-side)
+        return new NextResponse(
+            JSON.stringify({ ok: true, partidos: partidos || [] }),
+            {
+                status: 200,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                },
+            }
+        )
 
-  } catch (error: any) {
-    console.error('Error en la API de partidos-hoy:', error.message)
-    return NextResponse.json(
-      { ok: false, error: 'No se pudo cargar la agenda del día' },
-      { status: 500 }
-    )
-  }
+    } catch (error: any) {
+        console.error('Error en API partidos-hoy:', error)
+        return NextResponse.json(
+            { ok: false, error: error.message || 'Error interno del servidor' },
+            { status: 500 }
+        )
+    }
 }
