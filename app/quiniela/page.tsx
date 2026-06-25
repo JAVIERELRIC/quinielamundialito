@@ -760,7 +760,8 @@ function TablaDetalle({
                                             <table className="w-full border-collapse">
                                                 <thead>
                                                     <tr className="bg-gray-50/80 border-b border-gray-100 text-gray-500 font-semibold">
-                                                        <th className="py-2 px-3 text-left">Enfrentamiento</th>
+                                                            <th className="py-2 px-3 text-left">Enfrentamiento</th>
+                                                            <th className="py-2.5 px-3 text-center">Predicción</th> {/* 👈 Nueva columna */}
                                                         <th className="py-2 px-3 text-center">Resultado</th>
                                                         <th className="py-2 px-3 text-center">Puntos</th>
                                                     </tr>
@@ -774,6 +775,10 @@ function TablaDetalle({
 
                                                         return (
                                                             <tr key={idx} className={`border-b border-gray-50 last:border-0 ${filaEstilo}`}>
+                                                                {/* 🏠 🤝 🚀 COLUMNA NUEVA: Muestra de forma limpia la elección del usuario */}
+                                                                <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                                                                    {renderEstiloCeldaPick(d.pick, d.equipo_a, d.equipo_b)}
+                                                                </td>
                                                                 <td className="py-2 px-3 text-left font-medium">{d.equipo_a} vs {d.equipo_b}</td>
                                                                 <td className="py-2 px-3 text-center font-mono font-semibold">{tieneResultado ? `${d.goles_a}-${d.goles_b}` : '—'}</td>
                                                                 <td className="py-2 px-3 text-center font-bold">
