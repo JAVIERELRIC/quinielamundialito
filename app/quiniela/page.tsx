@@ -584,17 +584,37 @@ function TablaDetalle({
       .eq('user_id', userId)
 
     const mappedRows = (picksData || [])
-      .filter((p: any) => p.jornada === numJornada) // 🎯 CORREGIDO: Usamos el parámetro dinámico sin comillas
+      .filter((p: any) => p.jornada === numJornada)
       .map((p: any) => {
         const partido = partidos.find((pt: any) => pt.id === p.partido_id)
         let puntosGanados = 0
 
-        const partidoYaSeJugo = p.goles_a_reales !== null && p.goles_b_reales !== null
+        const golesRealA = p.goles_a_reales
+        const golesRealB = p.goles_b_reales
+        const partidoYaSeJugo = golesRealA !== null && golesRealB !== null
 
         if (partidoYaSeJugo) {
-          if (p.acerto_ganador === 1) puntosGanados += p.puntos_fase 
-          if (p.acerto_marcador_exacto === 1) puntosGanados += 1 
-          if (p.acerto_tanda_penales === 1) puntosGanados += 1 
+          // 1. Determinar el resultado real calculado en caliente
+          let resultadoReal = 'empate'
+          if (golesRealA > golesRealB) resultadoReal = 'A'
+          if (golesRealA < golesRealB) resultadoReal = 'B'
+
+          // 2. Comprobar si acertó el ganador/empate
+          const acertoGanador = p.mi_ganador_pred === resultadoReal
+          if (acertoGanador) {
+            puntosGanados += p.puntos_fase || 1
+          }
+
+          // 3. Comprobar si acertó marcador exacto (+1 punto extra)
+          const acertoMarcadorExacto = p.goles_a_pred === golesRealA && p.goles_b_pred === golesRealB
+          if (acertoMarcadorExacto) {
+            puntosGanados += 1
+          }
+
+          // 4. Comprobar penales si aplica
+          if (p.acerto_tanda_penales === 1) {
+            puntosGanados += 1
+          }
         }
 
         return {
@@ -602,8 +622,8 @@ function TablaDetalle({
           equipo_a: partido?.equipo_a || '?',
           equipo_b: partido?.equipo_b || '?',
           pick: p.mi_ganador_pred,
-          goles_a: p.goles_a_reales,
-          goles_b: p.goles_b_reales,
+          goles_a: golesRealA,
+          goles_b: golesRealB,
           puntos: puntosGanados,
           fase: partido?.fase || 'grupos'
         }
@@ -770,10 +790,34 @@ function AdminPanel({ showToast, adminEmail }: { showToast: (m: string) => void;
       <div className="bg-white rounded-xl border p-4">
         <h3 className="font-medium mb-3">Cargar resultado</h3>
         <form onSubmit={cargarResultado} className="space-y-2">
-          <input required value={partidoId} onChange={e => setPartidoId(m => parseInt(m) >= 1 ? m : '')} placeholder="ID del partido" type="number" className="w-full border rounded-lg px-3 py-2 text-sm" />
+          <input 
+            required 
+            value={partidoId} 
+            onChange={e => setPartidoId(e.target.value)} 
+            placeholder="ID del partido" 
+            type="number" 
+            min="1"
+            className="w-full border rounded-lg px-3 py-2 text-sm" 
+          />
           <div className="grid grid-cols-2 gap-2">
-            <input required value={golesA} onChange={e => setGolesA(e.target.value)} placeholder="Goles A" type="number" className="border rounded-lg px-3 py-2 text-sm" />
-            <input required value={golesB} onChange={e => setGolesB(e.target.value)} placeholder="Goles B" type="number" className="border rounded-lg px-3 py-2 text-sm" />
+            <input 
+              required 
+              value={golesA} 
+              onChange={e => setGolesA(e.target.value)} 
+              placeholder="Goles A" 
+              type="number" 
+              min="0"
+              className="border rounded-lg px-3 py-2 text-sm" 
+            />
+            <input 
+              required 
+              value={golesB} 
+              onChange={e => setGolesB(e.target.value)} 
+              placeholder="Goles B" 
+              type="number" 
+              min="0"
+              className="border rounded-lg px-3 py-2 text-sm" 
+            />
           </div>
           <button type="submit" className="w-full py-2 bg-blue-600 text-white rounded-lg text-sm font-medium">Guardar y calcular puntos</button>
         </form>
