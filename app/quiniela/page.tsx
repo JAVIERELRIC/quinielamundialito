@@ -594,24 +594,20 @@ function TablaDetalle({
         const partidoYaSeJugo = golesRealA !== null && golesRealB !== null
 
         if (partidoYaSeJugo) {
-          // 1. Determinar el resultado real calculado en caliente
           let resultadoReal = 'empate'
           if (golesRealA > golesRealB) resultadoReal = 'A'
           if (golesRealA < golesRealB) resultadoReal = 'B'
 
-          // 2. Comprobar si acertó el ganador/empate
           const acertoGanador = p.mi_ganador_pred === resultadoReal
           if (acertoGanador) {
             puntosGanados += p.puntos_fase || 1
           }
 
-          // 3. Comprobar si acertó marcador exacto (+1 punto extra)
           const acertoMarcadorExacto = p.goles_a_pred === golesRealA && p.goles_b_pred === golesRealB
           if (acertoMarcadorExacto) {
             puntosGanados += 1
           }
 
-          // 4. Comprobar penales si aplica
           if (p.acerto_tanda_penales === 1) {
             puntosGanados += 1
           }
