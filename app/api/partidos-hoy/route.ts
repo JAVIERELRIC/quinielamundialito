@@ -27,16 +27,17 @@ export async function GET() {
     const finMañana = new Date(horaMañana.setHours(23, 59, 59, 999)).toISOString()
 
     // 4. Hacemos la consulta a la tabla de partidos usando los límites de tiempo locales corregidos
-    const { data: partidos, error } = await supabase
-      .from('partidos')
-      .select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado, fecha_hora')
-      .gte('fecha_hora', inicioHoy)
-      .lte('fecha_hora', finMañana)
-      .order('fecha_hora', { ascending: true })
+      const { data: partidos, error } = await supabase
+          .from('partidos')
+          .select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado, fecha_hora')
+          .is('goles_a', null) // 🔒 FILTRO: Excluye partidos que ya tienen marcador o ya jugaron
+          .gte('fecha_hora', inicioHoy)
+          .lte('fecha_hora', finMañana)
+          .order('fecha_hora', { ascending: true })
 
-    if (error) {
-      throw error
-    }
+      if (error) {
+          throw error
+      }
 
     // Retornamos los partidos filtrados de forma limpia y sin caché
     return NextResponse.json({ ok: true, partidos })
