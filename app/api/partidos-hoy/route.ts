@@ -1,28 +1,32 @@
 import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase' // Asegúrate de que esta ruta a tu cliente de Supabase sea la correcta
+import { headers } from 'next/headers' // 🎯 IMPORTACIÓN CLAVE PARA DETENER EL STATIC CACHE
+import { supabase } from '@/lib/supabase'
 
-// 🔒 FUERZA A NEXT.JS A NO GUARDAR CACHÉ EN EL SERVIDOR
+// Forzar comportamiento dinámico estricto en Next.js
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export async function GET() {
     try {
-        // 1. Configuración de fechas (Alineado a tu lógica actual de inicioHoy / finMañana)
+        // 1. Al llamar a headers(), Next.js sabe que esta ruta depende del cliente 
+        // y la saca inmediatamente del caché estático del build.
+        const headersList = await headers()
+
         const hoy = new Date()
 
-        // Inicio de hoy (00:00:00)
+        // Configuración de rangos (Horas locales / UTC según tu servidor)
         const inicioHoy = new Date(hoy)
         inicioHoy.setHours(0, 0, 0, 0)
 
-        // Fin de mañana (23:59:59)
         const finMañana = new Date(hoy)
         finMañana.setDate(hoy.getDate() + 1)
         finMañana.setHours(23, 59, 59, 999)
 
-        // 2. Consulta a Supabase con el filtro de partidos no jugados (goles_a === null)
+        // 2. Consulta limpia a Supabase
         const { data: partidos, error } = await supabase
             .from('partidos')
             .select('id, grupo, equipo_a, equipo_b, jornada, fase, cerrado, fecha_hora')
-            .is('goles_a', null) // 🎯 Excluye partidos que ya jugaron o ya tienen marcador cargado
+            .is('goles_a', null)
             .gte('fecha_hora', inicioHoy.toISOString())
             .lte('fecha_hora', finMañana.toISOString())
             .order('fecha_hora', { ascending: true })
@@ -31,14 +35,14 @@ export async function GET() {
             throw error
         }
 
-        // 3. Retorno con deshabilitación estricta de caché a nivel Navegador (Client-side)
+        // 3. Respuesta con cabeceras de control de caché agresivas para el navegador
         return new NextResponse(
             JSON.stringify({ ok: true, partidos: partidos || [] }),
             {
                 status: 200,
                 headers: {
                     'Content-Type': 'application/json',
-                    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+                    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0',
                     'Pragma': 'no-cache',
                     'Expires': '0',
                 },
@@ -48,7 +52,7 @@ export async function GET() {
     } catch (error: any) {
         console.error('Error en API partidos-hoy:', error)
         return NextResponse.json(
-            { ok: false, error: error.message || 'Error interno del servidor' },
+            { ok: false, error: error.message || 'Error interno' },
             { status: 500 }
         )
     }
