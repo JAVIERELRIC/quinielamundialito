@@ -1176,7 +1176,7 @@ export default function QuinielaPage() {
                 <li>• Acertar el marcador exacto: <strong>+2 puntos adicionales</strong>.</li>
                 <li>• Solo en la vuelta de la Final, acertar que la serie se define en penales: <strong>+1 punto adicional</strong>.</li>
                 <li>• Acertar al campeón de la Liguilla: <strong>4 puntos</strong>.</li>
-                <li>• En Cuartos y Semifinales no existe pronóstico de penales.</li>
+                <li>• En Cuartos y Semifinal no existe pronóstico de penales.</li>
               </ul>
             </div>
 
