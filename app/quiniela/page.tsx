@@ -1,6 +1,6 @@
 'use client'
 
-import { createBrowserClient } from '@supabase/ssr'
+import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
   type ChangeEvent,
@@ -323,15 +323,7 @@ function Ranking({
 
 export default function QuinielaPage() {
   const router = useRouter()
-  const supabase = useMemo(
-    () =>
-      createBrowserClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      ),
-    [],
-  )
-
+  
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const [tab, setTab] = useState<Tab>('picks')
