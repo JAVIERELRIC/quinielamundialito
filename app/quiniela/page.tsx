@@ -952,7 +952,7 @@ export default function QuinielaPage() {
                 <div>
                   <h2 className="text-base font-bold">🏆 Tu campeón</h2>
                   <p className="mt-1 text-xs text-gray-500">
-                    Acertar al campeón de la Liguilla vale 10 puntos.
+                    Acertar al campeón de la Liguilla vale 4 puntos.
                   </p>
                 </div>
                 <div className="flex w-full gap-2 sm:w-auto">
