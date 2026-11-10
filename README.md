@@ -1,4 +1,4 @@
-# Quiniela Mundial 2026 — Guía de despliegue
+# Quiniela Mundial 2026 — Guía de despliegue!!
 
 ## Lo que necesitas (todo gratuito)
 - Cuenta en **Supabase**: https://supabase.com
