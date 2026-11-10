@@ -1172,10 +1172,10 @@ export default function QuinielaPage() {
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h3 className="font-bold">🎯 Puntuación</h3>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-700">
-                <li>• Acertar ganador o empate: <strong>1 punto</strong>.</li>
-                <li>• Acertar el marcador exacto: <strong>+1 punto adicional</strong>.</li>
+                <li>• Acertar ganador o empate: <strong>2 puntos</strong>.</li>
+                <li>• Acertar el marcador exacto: <strong>+2 puntos adicionales</strong>.</li>
                 <li>• Solo en la vuelta de la Final, acertar que la serie se define en penales: <strong>+1 punto adicional</strong>.</li>
-                <li>• Acertar al campeón de la Liguilla: <strong>10 puntos</strong>.</li>
+                <li>• Acertar al campeón de la Liguilla: <strong>4 puntos</strong>.</li>
                 <li>• En Cuartos y Semifinales no existe pronóstico de penales.</li>
               </ul>
             </div>
