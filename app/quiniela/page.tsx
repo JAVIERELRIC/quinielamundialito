@@ -1070,7 +1070,7 @@ export default function QuinielaPage() {
                         className="w-14 rounded-lg border border-gray-300 bg-white px-2 py-2 text-center text-sm disabled:opacity-60"
                       />
                     </div>
-                    <div className="mt-1 text-xs text-gray-500">Marcador exacto opcional: +1 punto</div>
+                    <div className="mt-1 text-xs text-gray-500">Marcador exacto opcional: +2 punto</div>
 
 
                     {isFinalSecondLeg && (
