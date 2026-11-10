@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     if (configError) return NextResponse.json({ error: configError.message }, { status: 500 })
     const { error: picksError } = await auth.db.from('picks_campeon').update({ puntos: 0 }).neq('equipo', found.nombre)
     if (picksError) return NextResponse.json({ error: picksError.message }, { status: 500 })
-    await auth.db.from('picks_campeon').update({ puntos: 10 }).eq('equipo', found.nombre)
+    await auth.db.from('picks_campeon').update({ puntos: 4 }).eq('equipo', found.nombre)
     return NextResponse.json({ ok: true })
   }
 
