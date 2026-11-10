@@ -242,11 +242,17 @@ function Ranking({ positions, profiles, rows, matches, round, setRound }: { posi
   const ranking = profiles.map(profile => {
     if (round === 0) {
       const position = positions.find(item => item.user_id === profile.id)
-      return { id: profile.id, name: profile.nombre, points: position?.puntos_total || 0, correct: position?.picks_correctos || 0 }
+      const userRows = rows.filter(row => row.user_id === profile.id)
+
+const exact = userRows.reduce((sum, row) => sum + row.acerto_marcador_exacto, 0)
+
+const finalPoints = userRows.filter(row => row.jornada === 5 || row.jornada === 6).reduce((sum, row) => sum + row.puntos, 0)
+
+return { id: profile.id, name: profile.nombre, points: position?.puntos_total || 0, correct: position?.picks_correctos || 0, exact, finalPoints }
     }
     const selected = rows.filter(row => row.user_id === profile.id && row.jornada === round)
     return { id: profile.id, name: profile.nombre, points: selected.reduce((sum, row) => sum + row.puntos, 0), correct: selected.reduce((sum, row) => sum + row.acerto_ganador, 0) }
-  }).sort((a, b) => b.points - a.points || b.correct - a.correct || a.name.localeCompare(b.name))
+  }).sort((a, b) => b.points - a.points || b.correct - a.correct || (b.exact || 0) - (a.exact || 0) || (b.finalPoints || 0) - (a.finalPoints || 0))
 
   return <section className="space-y-4">
     <div className="flex gap-1 overflow-x-auto rounded-xl border bg-white p-1"><button onClick={() => setRound(0)} className={`rounded-lg px-3 py-2 text-xs font-medium ${round === 0 ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>General</button>{Object.entries(ROUND_SHORT_LABELS).map(([value, label]) => <button key={value} onClick={() => setRound(Number(value))} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs font-medium ${round === Number(value) ? 'bg-blue-600 text-white' : 'text-gray-600'}`}>{label}</button>)}</div>
