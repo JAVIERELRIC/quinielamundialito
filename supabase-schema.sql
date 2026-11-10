@@ -30,7 +30,8 @@ end $$;
 delete from auth.users
 where id not in (select id from _admins_backup);
 
-drop view if exists public.posiciones cascade;
+
+drop table if exists public.posiciones cascade;
 drop view if exists public.vista_picks_puntos cascade;
 drop function if exists public.calcular_puntos_partido(integer) cascade;
 drop function if exists public.calcular_puntos_campeon(text) cascade;
