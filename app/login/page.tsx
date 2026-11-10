@@ -22,7 +22,7 @@ function LoginForm() {
     setError('')
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `https://project-8vezg.vercel.app/auth/callback` },
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
     })
     if (error) {
       setError('No se pudo enviar el correo. Verifica que estés registrado.')
@@ -63,7 +63,7 @@ function LoginForm() {
         {/* Encabezado Principal */}
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">⚽</div>
-          <h1 className="text-2xl font-semibold text-gray-900">Quiniela Mundial 2026</h1>
+          <h1 className="text-2xl font-semibold text-gray-900">Quiniela de la Liguilla MX</h1>
           <p className="text-gray-500 text-sm mt-1">
             {enviado || verificar ? 'Ingresa tu token de seguridad' : 'Ingresa con tu correo'}
           </p>

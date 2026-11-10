@@ -1,53 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/authOptions'
-import { supabaseAdmin } from '@/lib/supabase'
+import { requireUser } from '@/lib/apiAuth'
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+  const auth = await requireUser(req)
+  if ('error' in auth) return auth.error
 
-  const { picks } = await req.json()
-  // picks = [{ partido_id: number, pick: 'A' | 'empate' | 'B' }]
-
-  const db = supabaseAdmin()
-
-  // Verificar que los partidos no estén cerrados
-  const ids = picks.map((p: any) => p.partido_id)
-  const { data: partidos } = await db
-    .from('partidos')
-    .select('id, cerrado')
-    .in('id', ids)
-
-  const cerrados = partidos?.filter(p => p.cerrado).map(p => p.id) || []
-  if (cerrados.length > 0) {
-    return NextResponse.json({ error: 'Algunos partidos ya cerraron', cerrados }, { status: 400 })
+  const body = await req.json().catch(() => ({}))
+  if (!Array.isArray(body.picks) || body.picks.length === 0) {
+    return NextResponse.json({ error: 'No hay picks para guardar.' }, { status: 400 })
   }
 
-  // Upsert picks
-  const rows = picks.map((p: any) => ({
-    user_id: session.user.id,
-    partido_id: p.partido_id,
-    pick: p.pick,
+  const ids = body.picks.map((pick: any) => Number(pick.partido_id))
+  const { data: partidos } = await auth.db.from('partidos').select('id, cerrado, fecha_hora').in('id', ids)
+  const now = Date.now()
+  const bloqueados = (partidos || []).filter((match: any) => match.cerrado || (match.fecha_hora && new Date(match.fecha_hora).getTime() <= now)).map((match: any) => match.id)
+  if (bloqueados.length) return NextResponse.json({ error: 'Algunos partidos ya cerraron.', bloqueados }, { status: 400 })
+
+  const rows = body.picks.map((pick: any) => ({
+    user_id: auth.user.id,
+    partido_id: Number(pick.partido_id),
+    pick: pick.pick,
+    goles_a_pred: pick.goles_a_pred ?? null,
+    goles_b_pred: pick.goles_b_pred ?? null,
+    predice_penales: Boolean(pick.predice_penales),
     updated_at: new Date().toISOString(),
   }))
 
-  const { error } = await db.from('picks').upsert(rows, { onConflict: 'user_id,partido_id' })
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  const valid = rows.every((row: any) => Number.isInteger(row.partido_id) && row.partido_id >= 1 && row.partido_id <= 14 && ['A', 'empate', 'B'].includes(row.pick))
+  if (!valid) return NextResponse.json({ error: 'Uno o más picks son inválidos.' }, { status: 400 })
 
+  const { error } = await auth.db.from('picks').upsert(rows, { onConflict: 'user_id,partido_id' })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true, guardados: rows.length })
 }
 
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.id) return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
-
-  const db = supabaseAdmin()
-  const { data, error } = await db
-    .from('picks')
-    .select('partido_id, pick, puntos')
-    .eq('user_id', session.user.id)
-
+  const auth = await requireUser(req)
+  if ('error' in auth) return auth.error
+  const { data, error } = await auth.db.from('picks').select('*').eq('user_id', auth.user.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ picks: data })
+  return NextResponse.json({ picks: data || [] })
 }

@@ -1,31 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { requireAdmin } from '@/lib/apiAuth'
 
-export async function GET() {
-  const db = supabaseAdmin()
-  const { data: partidos } = await db.from('partidos').select('id, goles_a, goles_b').not('goles_a', 'is', null)
-  const { data: posiciones } = await db.from('posiciones').select('user_id, puntos_total, picks_correctos, picks_totales')
-  const { data: profiles } = await db.from('profiles').select('id, nombre')
-  const posicionesConNombre = posiciones?.map((p: any) => ({
-    ...p, nombre: profiles?.find((pr: any) => pr.id === p.user_id)?.nombre || '?'
-  }))
-  return NextResponse.json({ resultados: partidos, posiciones: posicionesConNombre })
+export async function GET(req: NextRequest) {
+  const auth = await requireAdmin(req)
+  if ('error' in auth) return auth.error
+
+  const { data: partidos, error } = await auth.db
+    .from('partidos')
+    .select('id, goles_a, goles_b, se_definio_penales')
+    .not('goles_a', 'is', null)
+    .order('id')
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ resultados: partidos || [] })
 }
 
 export async function POST(req: NextRequest) {
-  // Verificar admin via header con service role
-  const { partido_id, goles_a, goles_b, admin_email } = await req.json()
-  const db = supabaseAdmin()
+  const auth = await requireAdmin(req)
+  if ('error' in auth) return auth.error
 
-  // Verificar que el email es admin
-  const { data: profile } = await db.from('profiles').select('es_admin').eq('email', admin_email).single()
-  if (!profile?.es_admin) {
-    return NextResponse.json({ error: 'Solo el admin puede cargar resultados' }, { status: 403 })
+  const body = await req.json().catch(() => ({}))
+  const partidoId = Number(body.partido_id)
+  const golesA = Number(body.goles_a)
+  const golesB = Number(body.goles_b)
+  if (!Number.isInteger(partidoId) || partidoId < 1 || partidoId > 14 || !Number.isInteger(golesA) || golesA < 0 || !Number.isInteger(golesB) || golesB < 0) {
+    return NextResponse.json({ error: 'Partido o marcador inválidos.' }, { status: 400 })
   }
 
-  const { error } = await db.from('partidos').update({ goles_a, goles_b, cerrado: true }).eq('id', partido_id)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  const { error } = await auth.db.from('partidos').update({
+    goles_a: golesA,
+    goles_b: golesB,
+    se_definio_penales: Boolean(body.se_definio_penales),
+    cerrado: true,
+  }).eq('id', partidoId)
 
-  await db.rpc('calcular_puntos_partido', { p_partido_id: partido_id })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
 }

@@ -1,300 +1,346 @@
--- =====================================================
--- QUINIELA MUNDIAL 2026 — Schema de Supabase
--- Ejecuta este SQL en Supabase → SQL Editor
--- =====================================================
+-- ============================================================================
+-- QUINIELA LIGUILLA MX — instalación/reinicio controlado
+-- ============================================================================
+-- ADVERTENCIA: este script borra la competencia anterior y elimina de
+-- Supabase Auth a todos los participantes, excepto las cuentas marcadas como
+-- administradoras en public.profiles. Ejecútalo UNA sola vez en Supabase
+-- SQL Editor; nunca lo agregues al proceso automático de despliegue.
+-- ============================================================================
 
--- Tabla de usuarios (complementa auth.users de Supabase)
+begin;
+
+create temporary table _admins_backup (
+  id uuid primary key,
+  nombre text not null,
+  email text not null
+) on commit drop;
+
+do $$
+begin
+  if to_regclass('public.profiles') is not null then
+    insert into _admins_backup (id, nombre, email)
+    select id, nombre, email
+    from public.profiles
+    where es_admin = true;
+  end if;
+end $$;
+
+-- Elimina participantes y sus sesiones; conserva al administrador para no
+-- bloquear el panel después del reinicio.
+delete from auth.users
+where id not in (select id from _admins_backup);
+
+drop view if exists public.posiciones cascade;
+drop view if exists public.vista_picks_puntos cascade;
+drop function if exists public.calcular_puntos_partido(integer) cascade;
+drop function if exists public.calcular_puntos_campeon(text) cascade;
+drop function if exists public.configurar_liguilla(text[]) cascade;
+drop function if exists public.actualizar_semifinalistas(text[]) cascade;
+drop function if exists public.actualizar_finalistas(text[]) cascade;
+drop function if exists public.reiniciar_competencia() cascade;
+drop table if exists public.picks_campeon cascade;
+drop table if exists public.picks cascade;
+drop table if exists public.partidos cascade;
+drop table if exists public.equipos cascade;
+drop table if exists public.configuracion cascade;
+drop table if exists public.profiles cascade;
+
 create table public.profiles (
   id uuid references auth.users(id) on delete cascade primary key,
   nombre text not null,
-  email text not null,
-  es_admin boolean default false,
-  created_at timestamptz default now()
+  email text not null unique,
+  es_admin boolean not null default false,
+  created_at timestamptz not null default now()
 );
 
--- Tabla de partidos (se pueden agregar fechas reales desde el admin)
+insert into public.profiles (id, nombre, email, es_admin)
+select backup.id, backup.nombre, backup.email, true
+from _admins_backup backup
+join auth.users users on users.id = backup.id;
+
+create table public.configuracion (
+  id smallint primary key default 1 check (id = 1),
+  configurada boolean not null default false,
+  campeon_real text,
+  updated_at timestamptz not null default now()
+);
+insert into public.configuracion (id) values (1);
+
+create table public.equipos (
+  id smallint primary key check (id between 1 and 8),
+  posicion smallint not null unique check (posicion between 1 and 8),
+  nombre text not null unique check (char_length(nombre) between 1 and 60)
+);
+
 create table public.partidos (
-  id integer primary key,
+  id integer primary key check (id between 1 and 14),
   grupo text not null,
+  llave smallint not null,
   equipo_a text not null,
   equipo_b text not null,
-  jornada integer not null,
-  fecha_hora timestamptz,        -- null hasta que el admin la cargue
-  goles_a integer,               -- null hasta que el admin cargue el resultado
-  goles_b integer,               -- null hasta que el admin cargue el resultado
-  cerrado boolean default false  -- se cierra cuando empieza el partido
+  jornada smallint not null check (jornada between 1 and 6),
+  fase text not null check (fase in ('cuartos', 'semifinales', 'final')),
+  vuelta smallint not null check (vuelta in (1, 2)),
+  puntos_valor integer not null default 1,
+  fecha_hora timestamptz,
+  goles_a integer check (goles_a is null or goles_a >= 0),
+  goles_b integer check (goles_b is null or goles_b >= 0),
+  se_definio_penales boolean not null default false,
+  cerrado boolean not null default false
 );
 
--- Tabla de picks de los participantes
 create table public.picks (
   id uuid default gen_random_uuid() primary key,
   user_id uuid references public.profiles(id) on delete cascade not null,
-  partido_id integer references public.partidos(id) not null,
-  pick text check (pick in ('A', 'empate', 'B')) not null,  -- A=gana equipo A, B=gana equipo B
-  puntos integer default 0,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  unique(user_id, partido_id)
+  partido_id integer references public.partidos(id) on delete cascade not null,
+  pick text not null check (pick in ('A', 'empate', 'B')),
+  goles_a_pred integer check (goles_a_pred is null or goles_a_pred >= 0),
+  goles_b_pred integer check (goles_b_pred is null or goles_b_pred >= 0),
+  predice_penales boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (user_id, partido_id)
 );
 
--- Tabla de posiciones (se recalcula automáticamente con un trigger)
-create table public.posiciones (
-  user_id uuid references public.profiles(id) on delete cascade primary key,
-  puntos_total integer default 0,
-  picks_correctos integer default 0,
-  picks_totales integer default 0,
-  updated_at timestamptz default now()
+create table public.picks_campeon (
+  id uuid default gen_random_uuid() primary key,
+  user_id uuid references public.profiles(id) on delete cascade not null unique,
+  equipo text not null,
+  puntos integer not null default 0,
+  created_at timestamptz not null default now()
 );
 
--- =====================================================
--- Función para calcular puntos cuando el admin carga resultado
--- =====================================================
-create or replace function calcular_puntos_partido(p_partido_id integer)
-returns void as $$
+create or replace function public.configurar_liguilla(p_equipos text[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
 declare
-  v_goles_a integer;
-  v_goles_b integer;
-  v_resultado text;
-  v_pick record;
+  equipos_limpios text[];
 begin
-  select goles_a, goles_b into v_goles_a, v_goles_b
-  from public.partidos where id = p_partido_id;
+  select array_agg(btrim(value) order by ord)
+  into equipos_limpios
+  from unnest(p_equipos) with ordinality as input(value, ord);
 
-  if v_goles_a is null or v_goles_b is null then return; end if;
-
-  if v_goles_a > v_goles_b then v_resultado := 'A';
-  elsif v_goles_b > v_goles_a then v_resultado := 'B';
-  else v_resultado := 'empate';
+  if coalesce(array_length(equipos_limpios, 1), 0) <> 8 then
+    raise exception 'Debes enviar exactamente 8 equipos';
+  end if;
+  if exists (select 1 from unnest(equipos_limpios) as item(value) where value = '' or char_length(value) > 60) then
+    raise exception 'Los nombres de equipo no son válidos';
+  end if;
+  if (select count(distinct lower(value)) from unnest(equipos_limpios) as item(value)) <> 8 then
+    raise exception 'Los equipos no pueden repetirse';
   end if;
 
-  -- Actualizar puntos de cada pick
-  for v_pick in select * from public.picks where partido_id = p_partido_id loop
-    if v_pick.pick = v_resultado then
-      update public.picks set puntos = 1, updated_at = now()
-      where id = v_pick.id;
-    else
-      update public.picks set puntos = 0, updated_at = now()
-      where id = v_pick.id;
-    end if;
-  end loop;
+  delete from public.picks_campeon;
+  delete from public.picks;
+  delete from public.partidos;
+  delete from public.equipos;
 
-  -- Recalcular posiciones de todos
-  insert into public.posiciones (user_id, puntos_total, picks_correctos, picks_totales, updated_at)
-  select
-    p.user_id,
-    sum(p.puntos) as puntos_total,
-    count(case when p.puntos = 1 then 1 end) as picks_correctos,
-    count(*) as picks_totales,
-    now()
-  from public.picks p
-  group by p.user_id
-  on conflict (user_id) do update set
-    puntos_total = excluded.puntos_total,
-    picks_correctos = excluded.picks_correctos,
-    picks_totales = excluded.picks_totales,
-    updated_at = now();
+  insert into public.equipos (id, posicion, nombre)
+  select ord::smallint, ord::smallint, value
+  from unnest(equipos_limpios) with ordinality as input(value, ord);
+
+  -- Cuartos: el mejor sembrado cierra cada serie como local.
+  insert into public.partidos (id, grupo, llave, equipo_a, equipo_b, jornada, fase, vuelta) values
+    (1,  'Cuartos 1', 1, equipos_limpios[8], equipos_limpios[1], 1, 'cuartos', 1),
+    (2,  'Cuartos 2', 2, equipos_limpios[7], equipos_limpios[2], 1, 'cuartos', 1),
+    (3,  'Cuartos 3', 3, equipos_limpios[6], equipos_limpios[3], 1, 'cuartos', 1),
+    (4,  'Cuartos 4', 4, equipos_limpios[5], equipos_limpios[4], 1, 'cuartos', 1),
+    (5,  'Cuartos 1', 1, equipos_limpios[1], equipos_limpios[8], 2, 'cuartos', 2),
+    (6,  'Cuartos 2', 2, equipos_limpios[2], equipos_limpios[7], 2, 'cuartos', 2),
+    (7,  'Cuartos 3', 3, equipos_limpios[3], equipos_limpios[6], 2, 'cuartos', 2),
+    (8,  'Cuartos 4', 4, equipos_limpios[4], equipos_limpios[5], 2, 'cuartos', 2),
+    (9,  'Semifinal 1', 1, 'Ganador Cuartos 1', 'Ganador Cuartos 4', 3, 'semifinales', 1),
+    (10, 'Semifinal 2', 2, 'Ganador Cuartos 2', 'Ganador Cuartos 3', 3, 'semifinales', 1),
+    (11, 'Semifinal 1', 1, 'Ganador Cuartos 4', 'Ganador Cuartos 1', 4, 'semifinales', 2),
+    (12, 'Semifinal 2', 2, 'Ganador Cuartos 3', 'Ganador Cuartos 2', 4, 'semifinales', 2),
+    (13, 'Final', 1, 'Finalista 1', 'Finalista 2', 5, 'final', 1),
+    (14, 'Final', 1, 'Finalista 2', 'Finalista 1', 6, 'final', 2);
+
+  update public.configuracion
+  set configurada = true, campeon_real = null, updated_at = now()
+  where id = 1;
 end;
-$$ language plpgsql security definer;
+$$;
 
--- =====================================================
--- Row Level Security (RLS)
--- =====================================================
+create or replace function public.actualizar_semifinalistas(p_equipos text[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  e text[];
+begin
+  select array_agg(btrim(value) order by ord) into e
+  from unnest(p_equipos) with ordinality as input(value, ord);
+  if coalesce(array_length(e, 1), 0) <> 4 or (select count(distinct lower(value)) from unnest(e) as item(value)) <> 4 then
+    raise exception 'Debes enviar 4 semifinalistas distintos';
+  end if;
+  if exists (select 1 from unnest(e) as item(value) where not exists (select 1 from public.equipos where lower(nombre) = lower(value))) then
+    raise exception 'Todos los semifinalistas deben pertenecer a los 8 equipos';
+  end if;
+  delete from public.picks where partido_id between 9 and 14;
+  update public.partidos set equipo_a=e[1], equipo_b=e[2], goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=9;
+  update public.partidos set equipo_a=e[3], equipo_b=e[4], goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=10;
+  update public.partidos set equipo_a=e[2], equipo_b=e[1], goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=11;
+  update public.partidos set equipo_a=e[4], equipo_b=e[3], goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=12;
+  update public.partidos set equipo_a='Finalista 1', equipo_b='Finalista 2', goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=13;
+  update public.partidos set equipo_a='Finalista 2', equipo_b='Finalista 1', goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=14;
+end;
+$$;
+
+create or replace function public.actualizar_finalistas(p_equipos text[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  e text[];
+begin
+  select array_agg(btrim(value) order by ord) into e
+  from unnest(p_equipos) with ordinality as input(value, ord);
+  if coalesce(array_length(e, 1), 0) <> 2 or lower(e[1]) = lower(e[2]) then
+    raise exception 'Debes enviar 2 finalistas distintos';
+  end if;
+  if exists (select 1 from unnest(e) as item(value) where not exists (select 1 from public.equipos where lower(nombre) = lower(value))) then
+    raise exception 'Los finalistas deben pertenecer a los 8 equipos';
+  end if;
+  delete from public.picks where partido_id between 13 and 14;
+  update public.partidos set equipo_a=e[1], equipo_b=e[2], goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=13;
+  update public.partidos set equipo_a=e[2], equipo_b=e[1], goles_a=null, goles_b=null, cerrado=false, se_definio_penales=false where id=14;
+end;
+$$;
+
+create or replace function public.reiniciar_competencia()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  delete from public.profiles where es_admin = false;
+  perform public.configurar_liguilla(array[
+    'Equipo 1','Equipo 2','Equipo 3','Equipo 4',
+    'Equipo 5','Equipo 6','Equipo 7','Equipo 8'
+  ]::text[]);
+  update public.configuracion set configurada = false, updated_at = now() where id = 1;
+end;
+$$;
+
+-- Marcador, aciertos y puntuación se calculan en una vista; no hay triggers ni
+-- contadores que puedan quedar desincronizados.
+create view public.vista_picks_puntos
+with (security_invoker = true)
+as
+select
+  pick.id as pick_id,
+  pick.user_id,
+  pick.partido_id,
+  pick.pick as mi_ganador_pred,
+  pick.goles_a_pred,
+  pick.goles_b_pred,
+  pick.predice_penales,
+  partido.equipo_a,
+  partido.equipo_b,
+  partido.goles_a as goles_a_reales,
+  partido.goles_b as goles_b_reales,
+  partido.se_definio_penales,
+  partido.jornada,
+  partido.fase,
+  partido.puntos_valor as puntos_fase,
+  case
+    when partido.goles_a is null or partido.goles_b is null then null
+    when partido.goles_a > partido.goles_b then 'A'
+    when partido.goles_b > partido.goles_a then 'B'
+    else 'empate'
+  end as resultado_real,
+  case when partido.goles_a is not null and partido.goles_b is not null and pick.pick =
+    case when partido.goles_a > partido.goles_b then 'A' when partido.goles_b > partido.goles_a then 'B' else 'empate' end
+    then 1 else 0 end as acerto_ganador,
+  case when partido.goles_a is not null and partido.goles_b is not null and pick.goles_a_pred = partido.goles_a and pick.goles_b_pred = partido.goles_b
+    then 1 else 0 end as acerto_marcador_exacto,
+  case when partido.goles_a is not null and pick.predice_penales and partido.se_definio_penales then 1 else 0 end as acerto_tanda_penales,
+  case when partido.goles_a is null or partido.goles_b is null then 0 else
+    (case when pick.pick = case when partido.goles_a > partido.goles_b then 'A' when partido.goles_b > partido.goles_a then 'B' else 'empate' end then partido.puntos_valor else 0 end)
+    + (case when pick.goles_a_pred = partido.goles_a and pick.goles_b_pred = partido.goles_b then 1 else 0 end)
+    + (case when pick.predice_penales and partido.se_definio_penales then 1 else 0 end)
+  end as puntos
+from public.picks pick
+join public.partidos partido on partido.id = pick.partido_id;
+
+create view public.posiciones
+with (security_invoker = true)
+as
+select
+  profile.id as user_id,
+  profile.nombre,
+  coalesce(sum(vista.puntos), 0)::integer + coalesce(campeon.puntos, 0) as puntos_total,
+  coalesce(sum(vista.acerto_ganador), 0)::integer as picks_correctos,
+  count(vista.pick_id)::integer as picks_totales
+from public.profiles profile
+left join public.vista_picks_puntos vista on vista.user_id = profile.id
+left join public.picks_campeon campeon on campeon.user_id = profile.id
+group by profile.id, profile.nombre, campeon.puntos;
+
+-- Equipos y calendario iniciales; el administrador los reemplaza desde la app.
+select public.configurar_liguilla(array[
+  'Equipo 1','Equipo 2','Equipo 3','Equipo 4',
+  'Equipo 5','Equipo 6','Equipo 7','Equipo 8'
+]::text[]);
+update public.configuracion set configurada = false where id = 1;
+
 alter table public.profiles enable row level security;
+alter table public.configuracion enable row level security;
+alter table public.equipos enable row level security;
 alter table public.partidos enable row level security;
 alter table public.picks enable row level security;
-alter table public.posiciones enable row level security;
+alter table public.picks_campeon enable row level security;
 
--- Profiles: cada quien ve todos, solo edita el suyo
-create policy "Profiles visibles para todos" on public.profiles for select using (true);
-create policy "Solo editas tu perfil" on public.profiles for update using (auth.uid() = id);
-create policy "Insertar perfil propio" on public.profiles for insert with check (auth.uid() = id);
-
--- Partidos: todos pueden ver, solo admins editan
-create policy "Partidos visibles para todos" on public.partidos for select using (true);
-create policy "Solo admin edita partidos" on public.partidos for all
-  using (exists (select 1 from public.profiles where id = auth.uid() and es_admin = true));
-
--- Picks: cada quien ve y edita los suyos, no pueden editar picks de otros
-create policy "Ver picks propios" on public.picks for select using (auth.uid() = user_id);
-create policy "Insertar pick propio" on public.picks for insert with check (auth.uid() = user_id);
-create policy "Actualizar pick propio" on public.picks for update using (auth.uid() = user_id);
-
--- Posiciones: todos pueden ver
-create policy "Posiciones visibles para todos" on public.posiciones for select using (true);
-
--- =====================================================
--- Insertar los 72 partidos iniciales (sin fechas, el admin las agrega)
--- =====================================================
-insert into public.partidos (id, grupo, equipo_a, equipo_b, jornada) values
-(1,'A','México','Sudáfrica',1),(2,'A','Rep. de Corea','Chequia',1),
-(3,'A','México','Rep. de Corea',2),(4,'A','Sudáfrica','Chequia',2),
-(5,'A','México','Chequia',3),(6,'A','Sudáfrica','Rep. de Corea',3),
-(7,'B','Canadá','Bosnia y Herzegovina',1),(8,'B','Catar','Suiza',1),
-(9,'B','Canadá','Catar',2),(10,'B','Bosnia y Herzegovina','Suiza',2),
-(11,'B','Canadá','Suiza',3),(12,'B','Bosnia y Herzegovina','Catar',3),
-(13,'C','Brasil','Marruecos',1),(14,'C','Haití','Escocia',1),
-(15,'C','Brasil','Haití',2),(16,'C','Marruecos','Escocia',2),
-(17,'C','Brasil','Escocia',3),(18,'C','Marruecos','Haití',3),
-(19,'D','USA','Paraguay',1),(20,'D','Australia','Turquía',1),
-(21,'D','USA','Australia',2),(22,'D','Paraguay','Turquía',2),
-(23,'D','USA','Turquía',3),(24,'D','Paraguay','Australia',3),
-(25,'E','Alemania','Curazao',1),(26,'E','Costa de Marfil','Ecuador',1),
-(27,'E','Alemania','Costa de Marfil',2),(28,'E','Curazao','Ecuador',2),
-(29,'E','Alemania','Ecuador',3),(30,'E','Curazao','Costa de Marfil',3),
-(31,'F','Países Bajos','Japón',1),(32,'F','Suecia','Túnez',1),
-(33,'F','Países Bajos','Suecia',2),(34,'F','Japón','Túnez',2),
-(35,'F','Países Bajos','Túnez',3),(36,'F','Japón','Suecia',3),
-(37,'G','Bélgica','Egipto',1),(38,'G','Irán','Nueva Zelanda',1),
-(39,'G','Bélgica','Irán',2),(40,'G','Egipto','Nueva Zelanda',2),
-(41,'G','Bélgica','Nueva Zelanda',3),(42,'G','Egipto','Irán',3),
-(43,'H','España','Cabo Verde',1),(44,'H','Arabia Saudita','Uruguay',1),
-(45,'H','España','Arabia Saudita',2),(46,'H','Cabo Verde','Uruguay',2),
-(47,'H','España','Uruguay',3),(48,'H','Cabo Verde','Arabia Saudita',3),
-(49,'I','Francia','Senegal',1),(50,'I','Irak','Noruega',1),
-(51,'I','Francia','Irak',2),(52,'I','Senegal','Noruega',2),
-(53,'I','Francia','Noruega',3),(54,'I','Senegal','Irak',3),
-(55,'J','Argentina','Argelia',1),(56,'J','Austria','Jordania',1),
-(57,'J','Argentina','Austria',2),(58,'J','Argelia','Jordania',2),
-(59,'J','Argentina','Jordania',3),(60,'J','Argelia','Austria',3),
-(61,'K','Portugal','Congo',1),(62,'K','Uzbekistán','Colombia',1),
-(63,'K','Portugal','Uzbekistán',2),(64,'K','Congo','Colombia',2),
-(65,'K','Portugal','Colombia',3),(66,'K','Congo','Uzbekistán',3),
-(67,'L','Inglaterra','Croacia',1),(68,'L','Ghana','Panamá',1),
-(69,'L','Inglaterra','Ghana',2),(70,'L','Croacia','Panamá',2),
-(71,'L','Inglaterra','Panamá',3),(72,'L','Croacia','Ghana',3);
-
--- =====================================================
--- ACTUALIZACIÓN — Fases eliminatorias
--- Ejecuta esto en Supabase SQL Editor DESPUÉS del schema inicial
--- =====================================================
-
--- Agregar columna puntos_valor a partidos
-ALTER TABLE public.partidos ADD COLUMN IF NOT EXISTS puntos_valor integer DEFAULT 1;
-ALTER TABLE public.partidos ADD COLUMN IF NOT EXISTS fase text DEFAULT 'grupos';
-
--- Actualizar partidos de grupos ya existentes
-UPDATE public.partidos SET puntos_valor = 1, fase = 'grupos';
-
--- Tabla para pick del campeón
-CREATE TABLE IF NOT EXISTS public.picks_campeon (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  user_id uuid REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  equipo text NOT NULL,
-  puntos integer DEFAULT 0,
-  created_at timestamptz DEFAULT now(),
-  updated_at timestamptz DEFAULT now(),
-  UNIQUE(user_id)
+create policy "Perfiles visibles" on public.profiles for select to authenticated using (true);
+create policy "Configuración visible" on public.configuracion for select to authenticated using (true);
+create policy "Equipos visibles" on public.equipos for select to authenticated using (true);
+create policy "Partidos visibles" on public.partidos for select to authenticated using (true);
+create policy "Picks visibles" on public.picks for select to authenticated using (true);
+create policy "Insertar pick propio abierto" on public.picks for insert to authenticated
+with check (
+  auth.uid() = user_id and exists (
+    select 1 from public.partidos partido
+    where partido.id = partido_id
+      and not partido.cerrado
+      and (partido.fecha_hora is null or partido.fecha_hora > now())
+  )
 );
+create policy "Actualizar pick propio abierto" on public.picks for update to authenticated
+using (auth.uid() = user_id)
+with check (
+  auth.uid() = user_id and exists (
+    select 1 from public.partidos partido
+    where partido.id = partido_id
+      and not partido.cerrado
+      and (partido.fecha_hora is null or partido.fecha_hora > now())
+  )
+);
+create policy "Picks de campeón visibles" on public.picks_campeon for select to authenticated using (true);
+create policy "Insertar campeón propio" on public.picks_campeon for insert to authenticated
+with check (auth.uid() = user_id and exists (select 1 from public.configuracion where id = 1 and campeon_real is null));
 
-ALTER TABLE public.picks_campeon ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Ver pick campeon propio" ON public.picks_campeon FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Insertar pick campeon propio" ON public.picks_campeon FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY "Actualizar pick campeon propio" ON public.picks_campeon FOR UPDATE USING (auth.uid() = user_id);
+revoke all on function public.configurar_liguilla(text[]) from public, anon, authenticated;
+revoke all on function public.actualizar_semifinalistas(text[]) from public, anon, authenticated;
+revoke all on function public.actualizar_finalistas(text[]) from public, anon, authenticated;
+revoke all on function public.reiniciar_competencia() from public, anon, authenticated;
+grant execute on function public.configurar_liguilla(text[]) to service_role;
+grant execute on function public.actualizar_semifinalistas(text[]) to service_role;
+grant execute on function public.actualizar_finalistas(text[]) to service_role;
+grant execute on function public.reiniciar_competencia() to service_role;
+grant select on public.vista_picks_puntos, public.posiciones to authenticated;
 
--- Insertar partidos de eliminatorias con equipos genéricos
-INSERT INTO public.partidos (id, grupo, equipo_a, equipo_b, jornada, fase, puntos_valor) VALUES
--- 16avos de final (32 partidos)
-(73, '16avos', '1A', '2B', 4, '16avos', 2),
-(74, '16avos', '1B', '2A', 4, '16avos', 2),
-(75, '16avos', '1C', '2D', 4, '16avos', 2),
-(76, '16avos', '1D', '2C', 4, '16avos', 2),
-(77, '16avos', '1E', '2F', 4, '16avos', 2),
-(78, '16avos', '1F', '2E', 4, '16avos', 2),
-(79, '16avos', '1G', '2H', 4, '16avos', 2),
-(80, '16avos', '1H', '2G', 4, '16avos', 2),
-(81, '16avos', '1I', '2J', 4, '16avos', 2),
-(82, '16avos', '1J', '2I', 4, '16avos', 2),
-(83, '16avos', '1K', '2L', 4, '16avos', 2),
-(84, '16avos', '1L', '2K', 4, '16avos', 2),
-(85, '16avos', '3A/B/C/D', '3E/F/G/H', 4, '16avos', 2),
-(86, '16avos', '3I/J/K/L', '3A/B/E/F', 4, '16avos', 2),
-(87, '16avos', '3C/D/G/H', '3A/B/I/J', 4, '16avos', 2),
-(88, '16avos', '3E/F/K/L', '3C/D/I/J', 4, '16avos', 2),
--- Octavos de final (8 partidos)
-(89, 'Octavos', 'G16avos-1', 'G16avos-2', 5, 'octavos', 3),
-(90, 'Octavos', 'G16avos-3', 'G16avos-4', 5, 'octavos', 3),
-(91, 'Octavos', 'G16avos-5', 'G16avos-6', 5, 'octavos', 3),
-(92, 'Octavos', 'G16avos-7', 'G16avos-8', 5, 'octavos', 3),
-(93, 'Octavos', 'G16avos-9', 'G16avos-10', 5, 'octavos', 3),
-(94, 'Octavos', 'G16avos-11', 'G16avos-12', 5, 'octavos', 3),
-(95, 'Octavos', 'G16avos-13', 'G16avos-14', 5, 'octavos', 3),
-(96, 'Octavos', 'G16avos-15', 'G16avos-16', 5, 'octavos', 3),
--- Cuartos de final (4 partidos)
-(97, 'Cuartos', 'GOctavos-1', 'GOctavos-2', 6, 'cuartos', 4),
-(98, 'Cuartos', 'GOctavos-3', 'GOctavos-4', 6, 'cuartos', 4),
-(99, 'Cuartos', 'GOctavos-5', 'GOctavos-6', 6, 'cuartos', 4),
-(100, 'Cuartos', 'GOctavos-7', 'GOctavos-8', 6, 'cuartos', 4),
--- Semifinales (2 partidos)
-(101, 'Semis', 'GCuartos-1', 'GCuartos-2', 7, 'semis', 6),
-(102, 'Semis', 'GCuartos-3', 'GCuartos-4', 7, 'semis', 6),
--- Tercer lugar
-(103, 'Tercer lugar', 'Perdedor Semi 1', 'Perdedor Semi 2', 8, 'tercer_lugar', 4),
--- Final
-(104, 'Final', 'Finalista 1', 'Finalista 2', 8, 'final', 8);
+commit;
 
--- Actualizar función de calcular puntos para usar puntos_valor
-CREATE OR REPLACE FUNCTION calcular_puntos_partido(p_partido_id integer)
-RETURNS void AS $$
-DECLARE
-  v_goles_a integer;
-  v_goles_b integer;
-  v_resultado text;
-  v_puntos_valor integer;
-  v_pick record;
-BEGIN
-  SELECT goles_a, goles_b, puntos_valor INTO v_goles_a, v_goles_b, v_puntos_valor
-  FROM public.partidos WHERE id = p_partido_id;
-
-  IF v_goles_a IS NULL OR v_goles_b IS NULL THEN RETURN; END IF;
-
-  IF v_goles_a > v_goles_b THEN v_resultado := 'A';
-  ELSIF v_goles_b > v_goles_a THEN v_resultado := 'B';
-  ELSE v_resultado := 'empate';
-  END IF;
-
-  FOR v_pick IN SELECT * FROM public.picks WHERE partido_id = p_partido_id LOOP
-    IF v_pick.pick = v_resultado THEN
-      UPDATE public.picks SET puntos = v_puntos_valor, updated_at = now() WHERE id = v_pick.id;
-    ELSE
-      UPDATE public.picks SET puntos = 0, updated_at = now() WHERE id = v_pick.id;
-    END IF;
-  END LOOP;
-
-  INSERT INTO public.posiciones (user_id, puntos_total, picks_correctos, picks_totales, updated_at)
-  SELECT p.user_id, sum(p.puntos) as puntos_total,
-    count(case when p.puntos > 0 then 1 end) as picks_correctos,
-    count(*) as picks_totales, now()
-  FROM public.picks p GROUP BY p.user_id
-  ON CONFLICT (user_id) DO UPDATE SET
-    puntos_total = excluded.puntos_total,
-    picks_correctos = excluded.picks_correctos,
-    picks_totales = excluded.picks_totales,
-    updated_at = now();
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- Función para otorgar 10 puntos al campeón
-CREATE OR REPLACE FUNCTION calcular_puntos_campeon(p_campeon text)
-RETURNS void AS $$
-BEGIN
-  UPDATE public.picks_campeon SET puntos = CASE WHEN equipo = p_campeon THEN 10 ELSE 0 END;
-  
-  INSERT INTO public.posiciones (user_id, puntos_total, picks_correctos, picks_totales, updated_at)
-  SELECT p.user_id,
-    COALESCE((SELECT sum(pk.puntos) FROM public.picks pk WHERE pk.user_id = p.user_id), 0) + p.puntos,
-    COALESCE((SELECT count(*) FROM public.picks pk WHERE pk.user_id = p.user_id AND pk.puntos > 0), 0),
-    COALESCE((SELECT count(*) FROM public.picks pk WHERE pk.user_id = p.user_id), 0),
-    now()
-  FROM public.picks_campeon p
-  ON CONFLICT (user_id) DO UPDATE SET
-    puntos_total = excluded.puntos_total,
-    updated_at = now();
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
--- =====================================================
--- CRITERIO DE DESEMPATE — Marcador exacto de la Final
--- Ejecuta esto en Supabase SQL Editor
--- =====================================================
-ALTER TABLE public.picks ADD COLUMN IF NOT EXISTS goles_a_pred integer;
-ALTER TABLE public.picks ADD COLUMN IF NOT EXISTS goles_b_pred integer;
+-- Si no existía una cuenta administradora antes del reinicio, crea primero el
+-- usuario desde Supabase Authentication y después ejecuta, cambiando el email:
+-- insert into public.profiles (id, nombre, email, es_admin)
+-- select id, 'Administrador', email, true from auth.users where email = 'tu@correo.com';

@@ -2,14 +2,10 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Quiniela Mundial 2026',
-  description: 'La quiniela mundialista más fácil de llenar',
+  title: 'Quiniela de la Liguilla MX',
+  description: 'Quiniela de 8 equipos y 14 partidos de la Liguilla MX',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="es">
-      <body>{children}</body>
-    </html>
-  )
+  return <html lang="es-MX"><body>{children}</body></html>
 }
