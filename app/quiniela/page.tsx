@@ -1,5 +1,6 @@
 'use client'
 
+
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
@@ -11,10 +12,12 @@ import {
   useState,
 } from 'react'
 
+
 type Tab = 'picks' | 'tabla' | 'reglas' | 'admin'
 type PickChoice = 'A' | 'empate' | 'B'
 type Phase = 'cuartos' | 'semifinales' | 'final'
 type Notice = { type: 'success' | 'error'; text: string } | null
+
 
 type Profile = {
   id: string
@@ -23,17 +26,20 @@ type Profile = {
   es_admin: boolean
 }
 
+
 type Configuration = {
   id: number
   configurada: boolean
   campeon_real: string | null
 }
 
+
 type Team = {
   id: number
   posicion: number
   nombre: string
 }
+
 
 type Match = {
   id: number
@@ -52,6 +58,7 @@ type Match = {
   cerrado: boolean
 }
 
+
 type StoredPick = {
   id: string
   user_id: string
@@ -62,12 +69,14 @@ type StoredPick = {
   predice_penales: boolean
 }
 
+
 type ChampionPick = {
   id: string
   user_id: string
   equipo: string
   puntos: number
 }
+
 
 type PositionRow = {
   user_id: string
@@ -77,20 +86,24 @@ type PositionRow = {
   picks_totales: number
 }
 
+
 type PointsRow = {
   pick_id: string
   user_id: string
   partido_id: number
   jornada: number
   fase: Phase
+  mi_ganador_pred: PickChoice
   acerto_ganador: number
   acerto_marcador_exacto: number
   acerto_tanda_penales: number
   puntos: number
 }
 
+
 type ScoreDraft = { a: number | null; b: number | null }
 type ResultDraft = ScoreDraft & { penalties: boolean }
+
 
 type RankingItem = {
   id: string
@@ -102,6 +115,7 @@ type RankingItem = {
   position: number
 }
 
+
 const ROUND_LABELS: Record<number, string> = {
   0: 'General',
   1: 'Cuartos · Ida',
@@ -112,7 +126,9 @@ const ROUND_LABELS: Record<number, string> = {
   6: 'Final · Vuelta',
 }
 
+
 const EMPTY_RESULT: ResultDraft = { a: null, b: null, penalties: false }
+
 
 function asNonNegativeInteger(value: string): number | null {
   if (value.trim() === '') return null
@@ -120,8 +136,10 @@ function asNonNegativeInteger(value: string): number | null {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null
 }
 
+
 function formatKickoff(value: string | null) {
   if (!value) return 'Fecha pendiente'
+
 
   return new Intl.DateTimeFormat('es-MX', {
     timeZone: 'America/Monterrey',
@@ -130,12 +148,14 @@ function formatKickoff(value: string | null) {
   }).format(new Date(value))
 }
 
+
 function toDateTimeLocal(value: string | null) {
   if (!value) return ''
   const date = new Date(value)
   const offset = date.getTimezoneOffset()
   return new Date(date.getTime() - offset * 60_000).toISOString().slice(0, 16)
 }
+
 
 function isPlaceholder(match: Match) {
   const names = [match.equipo_a, match.equipo_b]
@@ -147,15 +167,18 @@ function isPlaceholder(match: Match) {
   )
 }
 
+
 function hasResult(match: Match) {
   return match.goles_a !== null && match.goles_b !== null
 }
+
 
 function hasStarted(match: Match) {
   return Boolean(
     match.fecha_hora && new Date(match.fecha_hora).getTime() <= Date.now(),
   )
 }
+
 
 function isLocked(match: Match, configured: boolean) {
   return (
@@ -167,6 +190,7 @@ function isLocked(match: Match, configured: boolean) {
   )
 }
 
+
 function sameRankingCriteria(a: RankingItem, b: RankingItem) {
   return (
     a.points === b.points &&
@@ -176,16 +200,19 @@ function sameRankingCriteria(a: RankingItem, b: RankingItem) {
   )
 }
 
+
 function Ranking({
   profiles,
   positions,
   rows,
+  matches,
   round,
   tournamentFinished,
 }: {
   profiles: Profile[]
   positions: PositionRow[]
   rows: PointsRow[]
+  matches: Match[]
   round: number
   tournamentFinished: boolean
 }) {
@@ -253,6 +280,20 @@ function Ranking({
   }, [positions, profiles, round, rows])
 
   const leaders = ranked.filter(item => item.position === 1)
+  const selectedMatches =
+    round === 0 ? [] : matches.filter(match => match.jornada === round)
+
+  function pickLabel(userId: string, match: Match): string {
+    const pick = rows.find(
+      row => row.user_id === userId && row.partido_id === match.id,
+    )
+
+    if (!pick) return '—'
+    if (pick.mi_ganador_pred === 'A') return match.equipo_a
+    if (pick.mi_ganador_pred === 'B') return match.equipo_b
+    if (pick.mi_ganador_pred === 'empate') return 'Empate'
+    return '—'
+  }
 
   if (ranked.length === 0) {
     return (
@@ -263,73 +304,130 @@ function Ranking({
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-            <tr>
-              <th className="px-4 py-3 text-center">Pos.</th>
-              <th className="px-4 py-3">Participante</th>
-              <th className="px-4 py-3 text-center">Puntos</th>
-              <th className="px-4 py-3 text-center">Resultados</th>
-              <th className="px-4 py-3 text-center">Exactos</th>
-              {round === 0 && (
-                <th className="px-4 py-3 text-center">Pts. Final</th>
-              )}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {ranked.map(item => {
-              const sharedLead = leaders.length > 1 && item.position === 1
-              const medal =
-                item.position === 1 ? '🥇' : item.position === 2 ? '🥈' : item.position === 3 ? '🥉' : ''
+    <div className="space-y-4">
+      <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
+              <tr>
+                <th className="px-4 py-3 text-center">Pos.</th>
+                <th className="px-4 py-3">Participante</th>
+                <th className="px-4 py-3 text-center">Puntos</th>
+                <th className="px-4 py-3 text-center">Resultados</th>
+                <th className="px-4 py-3 text-center">Exactos</th>
+                {round === 0 && (
+                  <th className="px-4 py-3 text-center">Pts. Final</th>
+                )}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {ranked.map(item => {
+                const sharedLead = leaders.length > 1 && item.position === 1
+                const medal =
+                  item.position === 1
+                    ? '🥇'
+                    : item.position === 2
+                      ? '🥈'
+                      : item.position === 3
+                        ? '🥉'
+                        : ''
 
-              return (
-                <tr key={item.id} className={item.position === 1 ? 'bg-amber-50/60' : ''}>
-                  <td className="whitespace-nowrap px-4 py-4 text-center font-bold text-gray-800">
-                    <span className="mr-1">{medal}</span>
-                    {item.position}
-                  </td>
-                  <td className="px-4 py-4 font-semibold text-gray-900">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span>{item.name}</span>
-                      {round === 0 && sharedLead && (
-                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
-                          {tournamentFinished ? 'Co-campeón' : 'Co-líder'}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-4 text-center text-lg font-black text-emerald-700">
-                    {item.points}
-                  </td>
-                  <td className="px-4 py-4 text-center text-gray-700">{item.correct}</td>
-                  <td className="px-4 py-4 text-center text-gray-700">{item.exact}</td>
-                  {round === 0 && (
-                    <td className="px-4 py-4 text-center text-gray-700">{item.finalPoints}</td>
-                  )}
+                return (
+                  <tr key={item.id} className={item.position === 1 ? 'bg-amber-50/60' : ''}>
+                    <td className="whitespace-nowrap px-4 py-4 text-center font-bold text-gray-800">
+                      <span className="mr-1">{medal}</span>
+                      {item.position}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-gray-900">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{item.name}</span>
+                        {round === 0 && sharedLead && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-bold text-amber-800">
+                            {tournamentFinished ? 'Co-campeón' : 'Co-líder'}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-center text-lg font-black text-emerald-700">
+                      {item.points}
+                    </td>
+                    <td className="px-4 py-4 text-center text-gray-700">{item.correct}</td>
+                    <td className="px-4 py-4 text-center text-gray-700">{item.exact}</td>
+                    {round === 0 && (
+                      <td className="px-4 py-4 text-center text-gray-700">{item.finalPoints}</td>
+                    )}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 text-xs text-gray-500">
+          Orden: puntos totales → resultados correctos → marcadores exactos → puntos en los dos partidos de la Final. Un empate total conserva la misma posición.
+        </div>
+      </div>
+
+      {round > 0 && (
+        <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="border-b border-gray-100 px-4 py-3">
+            <h3 className="text-sm font-bold text-gray-900">Picks de la jornada</h3>
+            <p className="mt-1 text-xs text-gray-500">
+              Pronósticos registrados por participante.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-xs">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-3 text-left font-bold text-gray-700">Partido</th>
+                  {profiles.map(profile => (
+                    <th
+                      key={profile.id}
+                      className="px-3 py-3 text-center font-bold text-gray-700"
+                    >
+                      {profile.nombre}
+                    </th>
+                  ))}
                 </tr>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-      <div className="border-t border-gray-100 bg-gray-50 px-4 py-3 text-xs text-gray-500">
-        Orden: puntos totales → resultados correctos → marcadores exactos → puntos en los dos partidos de la Final. Un empate total conserva la misma posición.
-      </div>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {selectedMatches.map(match => (
+                  <tr key={match.id}>
+                    <td className="whitespace-nowrap px-3 py-3 font-semibold text-gray-900">
+                      {match.equipo_a} vs {match.equipo_b}
+                    </td>
+                    {profiles.map(profile => (
+                      <td
+                        key={profile.id}
+                        className="whitespace-nowrap px-3 py-3 text-center text-gray-700"
+                      >
+                        {pickLabel(profile.id, match)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
 
 export default function QuinielaPage() {
   const router = useRouter()
   
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+
   const [tab, setTab] = useState<Tab>('picks')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<Notice>(null)
+
 
   const [profile, setProfile] = useState<Profile | null>(null)
   const [profiles, setProfiles] = useState<Profile[]>([])
@@ -345,11 +443,13 @@ export default function QuinielaPage() {
   const [championPick, setChampionPick] = useState<ChampionPick | null>(null)
   const [championSelection, setChampionSelection] = useState('')
 
+
   const [picks, setPicks] = useState<Record<number, PickChoice>>({})
   const [scores, setScores] = useState<Record<number, ScoreDraft>>({})
   const [penalties, setPenalties] = useState<Record<number, boolean>>({})
   const [pending, setPending] = useState<Set<number>>(new Set())
   const [round, setRound] = useState(0)
+
 
   const [setupTeams, setSetupTeams] = useState<string[]>(Array(8).fill(''))
   const [semifinalists, setSemifinalists] = useState<string[]>(Array(4).fill(''))
@@ -360,17 +460,20 @@ export default function QuinielaPage() {
   const [inviteName, setInviteName] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
 
+
   const notify = useCallback((type: 'success' | 'error', text: string) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
     setNotice({ type, text })
     noticeTimer.current = setTimeout(() => setNotice(null), 4_500)
   }, [])
 
+
   useEffect(() => {
     return () => {
       if (noticeTimer.current) clearTimeout(noticeTimer.current)
     }
   }, [])
+
 
   const apiFetch = useCallback(
     async <T,>(url: string, body: unknown): Promise<T> => {
@@ -380,6 +483,7 @@ export default function QuinielaPage() {
         headers.Authorization = `Bearer ${data.session.access_token}`
       }
 
+
       const response = await fetch(url, {
         method: 'POST',
         headers,
@@ -387,22 +491,27 @@ export default function QuinielaPage() {
         body: JSON.stringify(body),
       })
 
+
       const payload = (await response.json().catch(() => ({}))) as {
         error?: string
         message?: string
       }
 
+
       if (!response.ok) {
         throw new Error(payload.error || payload.message || 'No se pudo completar la operación.')
       }
+
 
       return payload as T
     },
     [supabase],
   )
 
+
   const loadAll = useCallback(async () => {
     setLoading(true)
+
 
     try {
       const {
@@ -410,10 +519,12 @@ export default function QuinielaPage() {
         error: userError,
       } = await supabase.auth.getUser()
 
+
       if (userError || !user) {
         router.replace('/login')
         return
       }
+
 
       const [
         profileResponse,
@@ -437,6 +548,7 @@ export default function QuinielaPage() {
         supabase.from('vista_picks_puntos').select('*'),
       ])
 
+
       const firstError = [
         profileResponse.error,
         profilesResponse.error,
@@ -449,7 +561,9 @@ export default function QuinielaPage() {
         pointsResponse.error,
       ].find(Boolean)
 
+
       if (firstError) throw firstError
+
 
       const loadedProfile = profileResponse.data as Profile
       const loadedProfiles = (profilesResponse.data || []) as Profile[]
@@ -457,6 +571,7 @@ export default function QuinielaPage() {
       const loadedTeams = (teamsResponse.data || []) as Team[]
       const loadedMatches = (matchesResponse.data || []) as Match[]
       const loadedPicks = (picksResponse.data || []) as StoredPick[]
+
 
       setProfile(loadedProfile)
       setProfiles(loadedProfiles)
@@ -471,14 +586,17 @@ export default function QuinielaPage() {
       setAllRows((pointsResponse.data || []) as PointsRow[])
       setOfficialChampion(loadedConfiguration.campeon_real || '')
 
+
       if (loadedTeams.length === 8) {
         setSetupTeams(loadedTeams.map(team => team.nombre))
       }
+
 
       const loadedPickMap: Record<number, PickChoice> = {}
       const loadedScoreMap: Record<number, ScoreDraft> = {}
       const loadedPenaltyMap: Record<number, boolean> = {}
       const matchById = new Map(loadedMatches.map(match => [match.id, match]))
+
 
       for (const pick of loadedPicks) {
         loadedPickMap[pick.partido_id] = pick.pick
@@ -492,10 +610,12 @@ export default function QuinielaPage() {
         )
       }
 
+
       setPicks(loadedPickMap)
       setScores(loadedScoreMap)
       setPenalties(loadedPenaltyMap)
       setPending(new Set())
+
 
       const loadedSchedules: Record<number, string> = {}
       const loadedResults: Record<number, ResultDraft> = {}
@@ -519,9 +639,11 @@ export default function QuinielaPage() {
     }
   }, [notify, router, supabase])
 
+
   useEffect(() => {
     void loadAll()
   }, [loadAll])
+
 
   function markPending(matchId: number) {
     setPending(previous => {
@@ -531,10 +653,12 @@ export default function QuinielaPage() {
     })
   }
 
+
   function markPick(matchId: number, choice: PickChoice) {
     setPicks(previous => ({ ...previous, [matchId]: choice }))
     markPending(matchId)
   }
+
 
   function updateScore(matchId: number, side: 'a' | 'b', value: string) {
     setScores(previous => ({
@@ -547,6 +671,7 @@ export default function QuinielaPage() {
     }))
     markPending(matchId)
   }
+
 
   async function savePicks() {
     const payload = Array.from(pending)
@@ -564,10 +689,12 @@ export default function QuinielaPage() {
         }
       })
 
+
     if (payload.length === 0) {
       notify('error', 'Selecciona un resultado antes de guardar.')
       return
     }
+
 
     setSaving(true)
     try {
@@ -581,6 +708,7 @@ export default function QuinielaPage() {
       setSaving(false)
     }
   }
+
 
   async function saveChampionPick() {
     if (!championSelection) {
@@ -596,6 +724,7 @@ export default function QuinielaPage() {
       return
     }
 
+
     setSaving(true)
     try {
       const {
@@ -603,12 +732,14 @@ export default function QuinielaPage() {
       } = await supabase.auth.getUser()
       if (!user) throw new Error('Tu sesión terminó. Vuelve a iniciar sesión.')
 
+
       const { error } = await supabase.from('picks_campeon').insert({
         user_id: user.id,
         equipo: championSelection,
         puntos: 0,
       })
       if (error) throw error
+
 
       notify('success', 'Pick de campeón guardado.')
       await loadAll()
@@ -618,6 +749,7 @@ export default function QuinielaPage() {
       setSaving(false)
     }
   }
+
 
   async function adminAction(
     action: 'setup' | 'semifinales' | 'final',
@@ -636,12 +768,14 @@ export default function QuinielaPage() {
     }
   }
 
+
   async function saveSchedule(matchId: number) {
     const value = scheduleDrafts[matchId]
     if (!value) {
       notify('error', 'Captura una fecha y hora válidas.')
       return
     }
+
 
     setSaving(true)
     try {
@@ -659,12 +793,14 @@ export default function QuinielaPage() {
     }
   }
 
+
   async function saveResult(match: Match) {
     const draft = resultDrafts[match.id] || EMPTY_RESULT
     if (draft.a === null || draft.b === null) {
       notify('error', 'Captura ambos marcadores.')
       return
     }
+
 
     setSaving(true)
     try {
@@ -685,11 +821,13 @@ export default function QuinielaPage() {
     }
   }
 
+
   async function saveOfficialChampion() {
     if (!officialChampion) {
       notify('error', 'Selecciona al campeón oficial.')
       return
     }
+
 
     setSaving(true)
     try {
@@ -706,11 +844,13 @@ export default function QuinielaPage() {
     }
   }
 
+
   async function inviteParticipant() {
     if (!inviteName.trim() || !inviteEmail.trim()) {
       notify('error', 'Captura nombre y correo del participante.')
       return
     }
+
 
     setSaving(true)
     try {
@@ -729,17 +869,20 @@ export default function QuinielaPage() {
     }
   }
 
+
   async function signOut() {
     await supabase.auth.signOut()
     router.replace('/login')
     router.refresh()
   }
 
+
   const configured = configuration.configurada
   const sortedMatches = useMemo(
     () => [...matches].sort((a, b) => a.id - b.id),
     [matches],
   )
+
 
   if (loading && !profile) {
     return (
@@ -750,6 +893,7 @@ export default function QuinielaPage() {
       </main>
     )
   }
+
 
   return (
     <main className="min-h-screen bg-gray-50 text-gray-900">
@@ -768,6 +912,7 @@ export default function QuinielaPage() {
             </button>
           </div>
         </div>
+
 
         <nav className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 sm:px-6">
           {([
@@ -791,6 +936,7 @@ export default function QuinielaPage() {
         </nav>
       </header>
 
+
       <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6">
         {tab === 'picks' && (
           <section className="space-y-5">
@@ -799,6 +945,7 @@ export default function QuinielaPage() {
                 <strong>Temporada reiniciada.</strong> El administrador debe capturar los ocho equipos antes de abrir la quiniela.
               </div>
             )}
+
 
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -835,12 +982,14 @@ export default function QuinielaPage() {
               </div>
             </div>
 
+
             {sortedMatches.map(match => {
               const locked = isLocked(match, configured)
               const resultAvailable = hasResult(match)
               const matchScore = scores[match.id] || { a: null, b: null }
               const choice = picks[match.id]
               const isFinalSecondLeg = match.fase === 'final' && match.vuelta === 2
+
 
               return (
                 <article key={match.id} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-5">
@@ -858,11 +1007,13 @@ export default function QuinielaPage() {
                     )}
                   </div>
 
+
                   <div className="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-center">
                     <div className="font-bold uppercase">{match.equipo_a}</div>
                     <div className="text-xs font-bold text-gray-300">VS</div>
                     <div className="font-bold uppercase">{match.equipo_b}</div>
                   </div>
+
 
                   <div className="mt-4 grid gap-2 sm:grid-cols-3">
                     {([
@@ -884,6 +1035,7 @@ export default function QuinielaPage() {
                       </button>
                     ))}
                   </div>
+
 
                   <div className="mt-3 rounded-xl bg-gray-50 px-4 py-4 text-center">
                     {resultAvailable && (
@@ -920,6 +1072,7 @@ export default function QuinielaPage() {
                     </div>
                     <div className="mt-1 text-xs text-gray-500">Marcador exacto opcional: +1 punto</div>
 
+
                     {isFinalSecondLeg && (
                       <label className="mt-3 flex items-center justify-center gap-2 text-xs text-gray-600">
                         <input
@@ -942,6 +1095,7 @@ export default function QuinielaPage() {
               )
             })}
 
+
             <button
               className="sticky bottom-4 w-full rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
               disabled={pending.size === 0 || saving}
@@ -956,12 +1110,14 @@ export default function QuinielaPage() {
           </section>
         )}
 
+
         {tab === 'tabla' && (
           <section className="space-y-4">
             <div>
               <h2 className="text-xl font-black">Tabla de posiciones</h2>
               <p className="mt-1 text-sm text-gray-500">Consulta la clasificación general o por jornada.</p>
             </div>
+
 
             <div className="flex gap-2 overflow-x-auto pb-1">
               {Object.entries(ROUND_LABELS).map(([value, label]) => (
@@ -979,15 +1135,18 @@ export default function QuinielaPage() {
               ))}
             </div>
 
+
             <Ranking
               profiles={profiles}
               positions={positions}
               rows={allRows}
+              matches={matches}
               round={round}
               tournamentFinished={Boolean(configuration.campeon_real)}
             />
           </section>
         )}
+
 
         {tab === 'reglas' && (
           <section className="space-y-5">
@@ -995,6 +1154,7 @@ export default function QuinielaPage() {
               <h2 className="text-xl font-black">Reglas de la quiniela</h2>
               <p className="mt-1 text-sm text-gray-500">Formato, puntuación y criterios definitivos.</p>
             </div>
+
 
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h3 className="font-bold">⚽ Formato</h3>
@@ -1008,6 +1168,7 @@ export default function QuinielaPage() {
               </ul>
             </div>
 
+
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h3 className="font-bold">🎯 Puntuación</h3>
               <ul className="mt-3 space-y-2 text-sm leading-6 text-gray-700">
@@ -1018,6 +1179,7 @@ export default function QuinielaPage() {
                 <li>• En Cuartos y Semifinales no existe pronóstico de penales.</li>
               </ul>
             </div>
+
 
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h3 className="font-bold">🏆 Desempates</h3>
@@ -1035,6 +1197,7 @@ export default function QuinielaPage() {
           </section>
         )}
 
+
         {tab === 'admin' && profile?.es_admin && (
           <section className="space-y-5">
             {!configured && (
@@ -1042,6 +1205,7 @@ export default function QuinielaPage() {
                 <strong>Temporada reiniciada.</strong> Captura los ocho equipos antes de abrir la quiniela.
               </div>
             )}
+
 
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h2 className="font-black">1. Configurar 8 equipos y cruces</h2>
@@ -1071,9 +1235,11 @@ export default function QuinielaPage() {
               </button>
             </div>
 
+
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h2 className="font-black">2. Cargar clasificados</h2>
               <p className="mt-1 text-xs text-gray-500">Captura las semifinales en orden: SF1 local/visitante y SF2 local/visitante. Después captura los dos finalistas.</p>
+
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
                 {semifinalists.map((value, index) => (
@@ -1097,6 +1263,7 @@ export default function QuinielaPage() {
               >
                 Guardar semifinalistas
               </button>
+
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 {finalists.map((value, index) => (
@@ -1122,12 +1289,14 @@ export default function QuinielaPage() {
               </button>
             </div>
 
+
             <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <h2 className="font-black">3. Fechas y resultados</h2>
               <div className="mt-4 space-y-4">
                 {sortedMatches.map(match => {
                   const draft = resultDrafts[match.id] || EMPTY_RESULT
                   const isFinalSecondLeg = match.fase === 'final' && match.vuelta === 2
+
 
                   return (
                     <div key={match.id} className="rounded-xl border border-gray-200 p-4">
@@ -1147,6 +1316,7 @@ export default function QuinielaPage() {
                           Guardar fecha
                         </button>
                       </div>
+
 
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <input
@@ -1199,6 +1369,7 @@ export default function QuinielaPage() {
               </div>
             </div>
 
+
             <div className="grid gap-5 lg:grid-cols-2">
               <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h2 className="font-black">4. Campeón oficial</h2>
@@ -1218,6 +1389,7 @@ export default function QuinielaPage() {
                   Confirmar campeón y asignar puntos
                 </button>
               </div>
+
 
               <div className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
                 <h2 className="font-black">5. Invitar participante</h2>
@@ -1249,6 +1421,7 @@ export default function QuinielaPage() {
         )}
       </div>
 
+
       {notice && (
         <div
           role="status"
@@ -1262,3 +1435,4 @@ export default function QuinielaPage() {
     </main>
   )
 }
+
