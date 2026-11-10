@@ -298,7 +298,7 @@ function Ranking({
   if (ranked.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center text-sm text-gray-500">
-        Todavía no hay participantes para mostrar.
+        No hay participantes para mostrar.
       </div>
     )
   }
