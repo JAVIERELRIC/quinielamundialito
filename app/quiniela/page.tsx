@@ -1,6 +1,6 @@
 'use client'
 
-
+import AccessRequestsPanel from '@/components/admin/AccessRequestsPanel'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import {
