@@ -1200,6 +1200,7 @@ export default function QuinielaPage() {
 
         {tab === 'admin' && profile?.es_admin && (
           <section className="space-y-5">
+            <AccessRequestsPanel />
             {!configured && (
               <div className="rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-900">
                 <strong>Temporada reiniciada.</strong> Captura los ocho equipos antes de abrir la quiniela.
